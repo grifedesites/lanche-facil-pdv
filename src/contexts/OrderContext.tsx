@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState } from "react";
 import { Product, useProducts } from "./ProductContext";
 import { useCashier } from "./CashierContext";
@@ -38,6 +37,7 @@ interface OrderContextType {
   cancelOrder: (orderId: string) => void;
   getOrdersByDateRange: (startDate: Date, endDate: Date) => Order[];
   getOrdersTotal: (filteredOrders?: Order[]) => number;
+  getOrdersByDate: (date: Date) => Order[]; // Added this function type
 }
 
 // Mock de pedidos iniciais para exemplificar
@@ -195,6 +195,20 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
   };
 
+  // Implement the missing getOrdersByDate function
+  const getOrdersByDate = (date: Date) => {
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+    
+    return orders.filter(order => {
+      const orderDate = new Date(order.createdAt);
+      return orderDate >= startOfDay && orderDate <= endOfDay;
+    });
+  };
+
   const getOrdersByDateRange = (startDate: Date, endDate: Date) => {
     return orders.filter(order => {
       const orderDate = new Date(order.createdAt);
@@ -219,7 +233,8 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     completeOrder,
     cancelOrder,
     getOrdersByDateRange,
-    getOrdersTotal
+    getOrdersTotal,
+    getOrdersByDate // Export the new function
   };
 
   return <OrderContext.Provider value={value}>{children}</OrderContext.Provider>;
