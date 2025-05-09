@@ -126,7 +126,7 @@ const POS: React.FC = () => {
                 <SelectValue placeholder="Todas categorias" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Todas categorias</SelectItem>
+                <SelectItem value="all">Todas categorias</SelectItem>
                 {categories.map((category) => (
                   <SelectItem key={category.id} value={category.id}>
                     {category.name}
