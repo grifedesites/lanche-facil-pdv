@@ -19,6 +19,7 @@ import Settings from "@/pages/Settings";
 import NotFound from "@/pages/NotFound";
 import Cashier from "@/pages/Cashier";
 import Inventory from "@/pages/Inventory";
+import Kitchen from "@/pages/Kitchen";
 
 const queryClient = new QueryClient();
 
@@ -43,6 +44,7 @@ const App = () => (
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/cashier" element={<Cashier />} />
                   <Route path="/inventory" element={<Inventory />} />
+                  <Route path="/kitchen" element={<Kitchen />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </OrderProvider>

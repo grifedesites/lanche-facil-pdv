@@ -12,7 +12,7 @@ export interface OrderFormItem {
   notes?: string;
 }
 
-export type OrderStatus = "pending" | "completed" | "cancelled";
+export type OrderStatus = "pending" | "preparing" | "completed" | "cancelled";
 
 export interface Order {
   id: string;
@@ -37,7 +37,9 @@ interface OrderContextType {
   cancelOrder: (orderId: string) => void;
   getOrdersByDateRange: (startDate: Date, endDate: Date) => Order[];
   getOrdersTotal: (filteredOrders?: Order[]) => number;
-  getOrdersByDate: (date: Date) => Order[]; // Added this function type
+  getOrdersByDate: (date: Date) => Order[];
+  markOrderAsReady: (orderId: string) => void;
+  updateOrderStatus: (orderId: string, status: OrderStatus) => void;
 }
 
 // Mock de pedidos iniciais para exemplificar
@@ -69,6 +71,20 @@ const INITIAL_ORDERS: Order[] = [
     userId: "1",
     userName: "Admin",
     paymentMethod: "cartao_credito"
+  },
+  // Adicionando um pedido em preparo para exemplo
+  {
+    id: "3",
+    items: [
+      { productId: "1", productName: "X-Burger", quantity: 1, unitPrice: 15.90 },
+      { productId: "4", productName: "Batata Frita P", quantity: 1, unitPrice: 8.90 }
+    ],
+    status: "preparing",
+    total: 24.80,
+    createdAt: new Date().toISOString(),
+    userId: "1",
+    userName: "Admin",
+    paymentMethod: "dinheiro"
   }
 ];
 
@@ -157,14 +173,13 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return false;
     }
 
-    // Cria o novo pedido
+    // Cria o novo pedido - agora com status 'preparing' para a cozinha
     const newOrder: Order = {
       id: `ord-${Date.now()}`,
       items: [...currentOrder],
-      status: "completed",
+      status: "preparing", // Alterado de 'completed' para 'preparing'
       total,
       createdAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
       userId,
       userName,
       paymentMethod
@@ -181,6 +196,9 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       `Pedido #${newOrder.id} - ${paymentMethod}`
     );
 
+    // Notifica a cozinha de um novo pedido
+    toast.info("Novo pedido enviado para a cozinha!");
+    
     // Limpa o pedido atual
     clearOrder();
 
@@ -193,6 +211,45 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         order.id === orderId ? { ...order, status: "cancelled" } : order
       )
     );
+  };
+
+  // Nova função para marcar um pedido como pronto
+  const markOrderAsReady = (orderId: string) => {
+    setOrders(
+      orders.map((order) => {
+        if (order.id === orderId && order.status === "preparing") {
+          toast.success(`Pedido #${orderId} está pronto!`);
+          return { 
+            ...order, 
+            status: "completed", 
+            completedAt: new Date().toISOString() 
+          };
+        }
+        return order;
+      })
+    );
+  };
+
+  // Função genérica para atualizar o status de um pedido
+  const updateOrderStatus = (orderId: string, status: OrderStatus) => {
+    setOrders(
+      orders.map((order) => {
+        if (order.id === orderId) {
+          const updatedOrder = { ...order, status };
+          
+          // Se o pedido estiver completo, adiciona a data de conclusão
+          if (status === "completed" && !updatedOrder.completedAt) {
+            updatedOrder.completedAt = new Date().toISOString();
+          }
+          
+          return updatedOrder;
+        }
+        return order;
+      })
+    );
+
+    // Notifica sobre a atualização de status
+    toast.info(`Status do pedido #${orderId} atualizado para ${status}`);
   };
 
   // Implement the missing getOrdersByDate function
@@ -234,7 +291,9 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     cancelOrder,
     getOrdersByDateRange,
     getOrdersTotal,
-    getOrdersByDate // Export the new function
+    getOrdersByDate,
+    markOrderAsReady,
+    updateOrderStatus
   };
 
   return <OrderContext.Provider value={value}>{children}</OrderContext.Provider>;

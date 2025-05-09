@@ -8,6 +8,7 @@ import {
   Settings,
   Users,
   Menu,
+  ChefHat,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -76,6 +77,10 @@ const Sidebar: React.FC = () => {
         <NavLink to="/pos" className={getLinkClass}>
           <Clipboard className="h-5 w-5 mr-3" />
           {!collapsed && <span>Vendas (PDV)</span>}
+        </NavLink>
+        <NavLink to="/kitchen" className={getLinkClass}>
+          <ChefHat className="h-5 w-5 mr-3" />
+          {!collapsed && <span>Cozinha</span>}
         </NavLink>
       </nav>
     </aside>
