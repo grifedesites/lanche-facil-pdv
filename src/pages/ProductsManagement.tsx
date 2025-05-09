@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import AppShell from "@/components/Layout/AppShell";
 import { useProducts, Product, Category } from "@/contexts/ProductContext";
@@ -176,7 +175,7 @@ const ProductsManagement: React.FC = () => {
                     <SelectValue placeholder="Todas categorias" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Todas categorias</SelectItem>
+                    <SelectItem value="all">Todas categorias</SelectItem>
                     {categories.map((category) => (
                       <SelectItem key={category.id} value={category.id}>
                         {category.name}
