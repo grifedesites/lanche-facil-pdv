@@ -31,8 +31,8 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
-          <CashierProvider>
-            <ProductProvider>
+          <ProductProvider>
+            <CashierProvider>
               <OrderProvider>
                 <Routes>
                   <Route path="/" element={<Navigate to="/login" replace />} />
@@ -50,8 +50,8 @@ const App = () => (
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </OrderProvider>
-            </ProductProvider>
-          </CashierProvider>
+            </CashierProvider>
+          </ProductProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

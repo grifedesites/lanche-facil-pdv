@@ -4,6 +4,7 @@ import { format } from "date-fns";
 import { CalendarIcon, DollarSign, TrendingUp, TrendingDown } from "lucide-react";
 import AppShell from "@/components/Layout/AppShell";
 import { useCashier } from "@/contexts/CashierContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 import {
   Card,
@@ -49,8 +50,9 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
 const CashierManagement: React.FC = () => {
+  const { user } = useAuth();
   const { 
-    cashierOperations, 
+    cashierOperations,
     registerCashierInflow,
     registerCashierOutflow,
     currentCashier,
@@ -85,9 +87,13 @@ const CashierManagement: React.FC = () => {
       return;
     }
     
+    if (!user) {
+      toast.error("Usuário não autenticado.");
+      return;
+    }
+    
     try {
-      openCashier(parseFloat(initialAmount));
-      toast.success("Caixa aberto com sucesso!");
+      openCashier(user.id, user.name || user.email, parseFloat(initialAmount));
       setOpenCashierDialog(false);
       setInitialAmount("");
     } catch (error) {
@@ -96,9 +102,13 @@ const CashierManagement: React.FC = () => {
   };
   
   const handleCloseCashier = () => {
+    if (!user) {
+      toast.error("Usuário não autenticado.");
+      return;
+    }
+    
     try {
-      closeCashier(closingNotes);
-      toast.success("Caixa fechado com sucesso!");
+      closeCashier(user.id, user.name || user.email);
       setCloseCashierDialog(false);
       setClosingNotes("");
     } catch (error) {
@@ -114,7 +124,6 @@ const CashierManagement: React.FC = () => {
     
     try {
       registerCashierInflow(parseFloat(inflow.amount), inflow.description);
-      toast.success("Entrada registrada com sucesso!");
       setInflowDialogOpen(false);
       setInflow({ amount: "", description: "" });
     } catch (error) {
@@ -130,7 +139,6 @@ const CashierManagement: React.FC = () => {
     
     try {
       registerCashierOutflow(parseFloat(outflow.amount), outflow.description, outflow.category);
-      toast.success("Saída registrada com sucesso!");
       setOutflowDialogOpen(false);
       setOutflow({ amount: "", description: "", category: "general" });
     } catch (error) {
@@ -138,9 +146,12 @@ const CashierManagement: React.FC = () => {
     }
   };
   
+  // Ensure cashierOperations is an array even if undefined
+  const operations = cashierOperations || [];
+  
   // Filtra as operações pela data selecionada
   const filteredOperations = date
-    ? cashierOperations.filter(op => {
+    ? operations.filter(op => {
         const opDate = new Date(op.timestamp);
         return (
           opDate.getDate() === date.getDate() &&
@@ -148,12 +159,12 @@ const CashierManagement: React.FC = () => {
           opDate.getFullYear() === date.getFullYear()
         );
       })
-    : cashierOperations;
+    : operations;
   
   // Calcula o saldo do dia
   const dailyBalance = filteredOperations.reduce((acc, op) => {
-    if (op.type === "inflow") return acc + op.amount;
-    if (op.type === "outflow") return acc - op.amount;
+    if (op.type === "inflow" || op.type === "opening" || op.type === "sale") return acc + op.amount;
+    if (op.type === "outflow" || op.type === "closing") return acc - op.amount;
     return acc;
   }, 0);
 

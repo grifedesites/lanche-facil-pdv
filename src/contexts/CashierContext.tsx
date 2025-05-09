@@ -1,8 +1,9 @@
 
 import React, { createContext, useContext, useState } from "react";
 import { toast } from "sonner";
+import { v4 as uuidv4 } from "uuid";
 
-// Tipos
+// Types
 export interface CashFlow {
   id: string;
   type: "open" | "close" | "input" | "output";
@@ -21,18 +22,37 @@ export interface CashierState {
   initialAmount: number;
 }
 
+export interface CashierOperation {
+  id: string;
+  type: "opening" | "closing" | "inflow" | "outflow" | "sale";
+  amount: number;
+  description: string;
+  timestamp: string;
+  category?: string;
+}
+
+export interface CurrentCashier {
+  openedAt: string;
+  currentBalance: number;
+}
+
 interface CashierContextType {
   cashState: CashierState;
   cashFlows: CashFlow[];
+  cashierOperations: CashierOperation[];
+  currentCashier: CurrentCashier | null;
+  cashierOpen: boolean;
   openCashier: (userId: string, userName: string, initialAmount: number) => void;
   closeCashier: (userId: string, userName: string) => void;
   addCashInput: (userId: string, userName: string, amount: number, description: string) => void;
   addCashOutput: (userId: string, userName: string, amount: number, description: string) => void;
   getCashFlowsByDate: (startDate: Date, endDate: Date) => CashFlow[];
   getCurrentBalance: () => number;
+  registerCashierInflow: (amount: number, description: string, category?: string) => void;
+  registerCashierOutflow: (amount: number, description: string, category?: string) => void;
 }
 
-// Estado inicial
+// Initial state
 const initialCashierState: CashierState = {
   isOpen: false,
   balance: 0,
@@ -46,8 +66,18 @@ const CashierContext = createContext<CashierContextType | undefined>(undefined);
 export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [cashState, setCashState] = useState<CashierState>(initialCashierState);
   const [cashFlows, setCashFlows] = useState<CashFlow[]>([]);
+  const [cashierOperations, setCashierOperations] = useState<CashierOperation[]>([]);
 
-  // Abrir caixa
+  // Check if the cashier is open
+  const cashierOpen = cashState.isOpen;
+  
+  // Current cashier information
+  const currentCashier = cashierOpen ? {
+    openedAt: cashState.openedAt || new Date().toISOString(),
+    currentBalance: cashState.balance
+  } : null;
+
+  // Open cashier
   const openCashier = (userId: string, userName: string, initialAmount: number) => {
     if (cashState.isOpen) {
       toast.error("O caixa já está aberto!");
@@ -55,12 +85,20 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const newFlow: CashFlow = {
-      id: `cash-${Date.now()}`,
+      id: uuidv4(),
       type: "open",
       amount: initialAmount,
       description: "Abertura de caixa",
       userId,
       userName,
+      timestamp: new Date().toISOString(),
+    };
+
+    const newOperation: CashierOperation = {
+      id: uuidv4(),
+      type: "opening",
+      amount: initialAmount,
+      description: "Abertura de caixa",
       timestamp: new Date().toISOString(),
     };
 
@@ -73,10 +111,11 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
 
     setCashFlows([...cashFlows, newFlow]);
+    setCashierOperations([...cashierOperations, newOperation]);
     toast.success("Caixa aberto com sucesso!");
   };
 
-  // Fechar caixa
+  // Close cashier
   const closeCashier = (userId: string, userName: string) => {
     if (!cashState.isOpen) {
       toast.error("O caixa já está fechado!");
@@ -84,7 +123,7 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const newFlow: CashFlow = {
-      id: `cash-${Date.now()}`,
+      id: uuidv4(),
       type: "close",
       amount: cashState.balance,
       description: "Fechamento de caixa",
@@ -93,12 +132,21 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
       timestamp: new Date().toISOString(),
     };
 
+    const newOperation: CashierOperation = {
+      id: uuidv4(),
+      type: "closing",
+      amount: cashState.balance,
+      description: "Fechamento de caixa",
+      timestamp: new Date().toISOString(),
+    };
+
     setCashFlows([...cashFlows, newFlow]);
+    setCashierOperations([...cashierOperations, newOperation]);
     setCashState(initialCashierState);
     toast.success("Caixa fechado com sucesso!");
   };
 
-  // Adicionar entrada no caixa (suprimento)
+  // Add cash input
   const addCashInput = (userId: string, userName: string, amount: number, description: string) => {
     if (!cashState.isOpen) {
       toast.error("O caixa precisa estar aberto para registrar entradas!");
@@ -106,7 +154,7 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const newFlow: CashFlow = {
-      id: `cash-${Date.now()}`,
+      id: uuidv4(),
       type: "input",
       amount,
       description,
@@ -124,7 +172,7 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
     toast.success("Entrada de caixa registrada com sucesso!");
   };
 
-  // Adicionar saída no caixa (sangria)
+  // Add cash output
   const addCashOutput = (userId: string, userName: string, amount: number, description: string) => {
     if (!cashState.isOpen) {
       toast.error("O caixa precisa estar aberto para registrar saídas!");
@@ -137,7 +185,7 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const newFlow: CashFlow = {
-      id: `cash-${Date.now()}`,
+      id: uuidv4(),
       type: "output",
       amount,
       description,
@@ -155,7 +203,62 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
     toast.success("Sangria de caixa registrada com sucesso!");
   };
 
-  // Obter movimentações por período
+  // Register cashier inflow (for CashierManagement page)
+  const registerCashierInflow = (amount: number, description: string, category: string = "general") => {
+    if (!cashState.isOpen) {
+      toast.error("O caixa precisa estar aberto para registrar entradas!");
+      return;
+    }
+
+    const newOperation: CashierOperation = {
+      id: uuidv4(),
+      type: "inflow",
+      amount,
+      description,
+      category,
+      timestamp: new Date().toISOString(),
+    };
+
+    setCashState({
+      ...cashState,
+      balance: cashState.balance + amount
+    });
+
+    setCashierOperations([...cashierOperations, newOperation]);
+    toast.success("Entrada registrada com sucesso!");
+  };
+
+  // Register cashier outflow (for CashierManagement page)
+  const registerCashierOutflow = (amount: number, description: string, category: string = "general") => {
+    if (!cashState.isOpen) {
+      toast.error("O caixa precisa estar aberto para registrar saídas!");
+      return;
+    }
+
+    if (cashState.balance < amount) {
+      toast.error("Saldo insuficiente para esta operação!");
+      return;
+    }
+
+    const newOperation: CashierOperation = {
+      id: uuidv4(),
+      type: "outflow",
+      amount,
+      description,
+      category,
+      timestamp: new Date().toISOString(),
+    };
+
+    setCashState({
+      ...cashState,
+      balance: cashState.balance - amount
+    });
+
+    setCashierOperations([...cashierOperations, newOperation]);
+    toast.success("Saída registrada com sucesso!");
+  };
+
+  // Get flows by date
   const getCashFlowsByDate = (startDate: Date, endDate: Date) => {
     return cashFlows.filter(flow => {
       const flowDate = new Date(flow.timestamp);
@@ -163,7 +266,7 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   };
 
-  // Obter saldo atual
+  // Get current balance
   const getCurrentBalance = () => {
     return cashState.balance;
   };
@@ -171,12 +274,17 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const value = {
     cashState,
     cashFlows,
+    cashierOperations,
+    currentCashier,
+    cashierOpen,
     openCashier,
     closeCashier,
     addCashInput,
     addCashOutput,
     getCashFlowsByDate,
-    getCurrentBalance
+    getCurrentBalance,
+    registerCashierInflow,
+    registerCashierOutflow
   };
 
   return <CashierContext.Provider value={value}>{children}</CashierContext.Provider>;
