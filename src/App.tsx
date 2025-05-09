@@ -18,6 +18,7 @@ import Reports from "@/pages/Reports";
 import Settings from "@/pages/Settings";
 import NotFound from "@/pages/NotFound";
 import Cashier from "@/pages/Cashier";
+import CashierManagement from "@/pages/CashierManagement";
 import Inventory from "@/pages/Inventory";
 import Kitchen from "@/pages/Kitchen";
 
@@ -43,6 +44,7 @@ const App = () => (
                   <Route path="/reports" element={<Reports />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/cashier" element={<Cashier />} />
+                  <Route path="/cashier-management" element={<CashierManagement />} />
                   <Route path="/inventory" element={<Inventory />} />
                   <Route path="/kitchen" element={<Kitchen />} />
                   <Route path="*" element={<NotFound />} />

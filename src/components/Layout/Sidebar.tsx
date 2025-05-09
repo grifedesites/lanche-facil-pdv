@@ -9,6 +9,8 @@ import {
   Users,
   Menu,
   ChefHat,
+  DollarSign,
+  Warehouse,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -67,6 +69,14 @@ const Sidebar: React.FC = () => {
             <NavLink to="/reports" className={getLinkClass}>
               <FileText className="h-5 w-5 mr-3" />
               {!collapsed && <span>Relatórios</span>}
+            </NavLink>
+            <NavLink to="/cashier-management" className={getLinkClass}>
+              <DollarSign className="h-5 w-5 mr-3" />
+              {!collapsed && <span>Gerenciamento de Caixa</span>}
+            </NavLink>
+            <NavLink to="/inventory" className={getLinkClass}>
+              <Warehouse className="h-5 w-5 mr-3" />
+              {!collapsed && <span>Gerenciar Estoque</span>}
             </NavLink>
             <NavLink to="/settings" className={getLinkClass}>
               <Settings className="h-5 w-5 mr-3" />
