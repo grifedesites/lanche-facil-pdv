@@ -1,10 +1,11 @@
 
 import React, { createContext, useContext, useState } from "react";
+import { Product, useProducts } from "./ProductContext";
+import { useCashier } from "./CashierContext";
 import { toast } from "sonner";
-import { Product } from "./ProductContext";
 
 // Tipos
-export interface OrderItem {
+export interface OrderFormItem {
   productId: string;
   productName: string;
   quantity: number;
@@ -12,171 +13,211 @@ export interface OrderItem {
   notes?: string;
 }
 
+export type OrderStatus = "pending" | "completed" | "cancelled";
+
 export interface Order {
   id: string;
-  items: OrderItem[];
+  items: OrderFormItem[];
+  status: OrderStatus;
   total: number;
-  status: "pending" | "completed" | "cancelled";
-  createdAt: Date;
-  completedAt?: Date;
-  employeeId: string;
-  employeeName: string;
+  createdAt: string;
+  completedAt?: string;
+  userId: string;
+  userName: string;
   paymentMethod?: string;
 }
 
-export interface OrderFormItem extends OrderItem {
-  product: Product;
-}
-
 interface OrderContextType {
-  currentOrder: OrderFormItem[];
   orders: Order[];
+  currentOrder: OrderFormItem[];
   addItem: (product: Product, quantity: number, notes?: string) => void;
   updateItem: (index: number, quantity: number, notes?: string) => void;
   removeItem: (index: number) => void;
   clearOrder: () => void;
-  completeOrder: (employeeId: string, employeeName: string, paymentMethod: string) => void;
+  completeOrder: (userId: string, userName: string, paymentMethod: string) => boolean;
   cancelOrder: (orderId: string) => void;
-  getOrdersByDate: (date: Date) => Order[];
   getOrdersByDateRange: (startDate: Date, endDate: Date) => Order[];
-  getOrdersTotal: (orders: Order[]) => number;
+  getOrdersTotal: (filteredOrders?: Order[]) => number;
 }
+
+// Mock de pedidos iniciais para exemplificar
+const INITIAL_ORDERS: Order[] = [
+  {
+    id: "1",
+    items: [
+      { productId: "1", productName: "X-Burger", quantity: 2, unitPrice: 15.90 },
+      { productId: "3", productName: "Refrigerante Lata", quantity: 2, unitPrice: 5.00 }
+    ],
+    status: "completed",
+    total: 41.80,
+    createdAt: new Date(Date.now() - 86400000).toISOString(), // Ontem
+    completedAt: new Date(Date.now() - 86300000).toISOString(),
+    userId: "1",
+    userName: "Admin",
+    paymentMethod: "dinheiro"
+  },
+  {
+    id: "2",
+    items: [
+      { productId: "2", productName: "X-Salada", quantity: 1, unitPrice: 17.90 },
+      { productId: "4", productName: "Batata Frita P", quantity: 1, unitPrice: 8.90 }
+    ],
+    status: "completed",
+    total: 26.80,
+    createdAt: new Date(Date.now() - 43200000).toISOString(), // 12 horas atrás
+    completedAt: new Date(Date.now() - 43100000).toISOString(),
+    userId: "1",
+    userName: "Admin",
+    paymentMethod: "cartao_credito"
+  }
+];
 
 const OrderContext = createContext<OrderContextType | undefined>(undefined);
 
 export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
   const [currentOrder, setCurrentOrder] = useState<OrderFormItem[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const { updateStock } = useProducts();
+  const { cashState, addCashInput } = useCashier();
 
   const addItem = (product: Product, quantity: number, notes?: string) => {
-    // Verificar se o produto já está no pedido
     const existingItemIndex = currentOrder.findIndex(
-      item => item.productId === product.id
+      (item) => item.productId === product.id
     );
 
-    if (existingItemIndex !== -1) {
-      // Se já existe, apenas atualize a quantidade
-      const updatedItems = [...currentOrder];
-      updatedItems[existingItemIndex].quantity += quantity;
-      updatedItems[existingItemIndex].notes = notes || updatedItems[existingItemIndex].notes;
-      setCurrentOrder(updatedItems);
-      toast.success(`${product.name} atualizado no pedido!`);
+    if (existingItemIndex >= 0) {
+      // Se o produto já existe, apenas incrementa a quantidade
+      const updatedOrder = [...currentOrder];
+      updatedOrder[existingItemIndex].quantity += quantity;
+      setCurrentOrder(updatedOrder);
     } else {
-      // Se não existe, adicione um novo item
-      setCurrentOrder([
-        ...currentOrder,
-        {
-          productId: product.id,
-          productName: product.name,
-          quantity,
-          unitPrice: product.price,
-          notes,
-          product
-        }
-      ]);
-      toast.success(`${product.name} adicionado ao pedido!`);
+      // Se não existe, adiciona como novo item
+      const newItem: OrderFormItem = {
+        productId: product.id,
+        productName: product.name,
+        quantity,
+        unitPrice: product.price,
+        notes
+      };
+      setCurrentOrder([...currentOrder, newItem]);
     }
   };
 
   const updateItem = (index: number, quantity: number, notes?: string) => {
-    const updatedItems = [...currentOrder];
-    updatedItems[index].quantity = quantity;
-    if (notes !== undefined) {
-      updatedItems[index].notes = notes;
-    }
-    setCurrentOrder(updatedItems);
+    if (index < 0 || index >= currentOrder.length) return;
+
+    const updatedOrder = [...currentOrder];
+    updatedOrder[index] = {
+      ...updatedOrder[index],
+      quantity,
+      notes
+    };
+    setCurrentOrder(updatedOrder);
   };
 
   const removeItem = (index: number) => {
-    const itemName = currentOrder[index].productName;
-    setCurrentOrder(currentOrder.filter((_, i) => i !== index));
-    toast.success(`${itemName} removido do pedido!`);
+    if (index < 0 || index >= currentOrder.length) return;
+    
+    const updatedOrder = [...currentOrder];
+    updatedOrder.splice(index, 1);
+    setCurrentOrder(updatedOrder);
   };
 
   const clearOrder = () => {
     setCurrentOrder([]);
   };
 
-  const completeOrder = (employeeId: string, employeeName: string, paymentMethod: string) => {
-    if (currentOrder.length === 0) {
-      toast.error("Não é possível finalizar um pedido vazio!");
-      return;
+  const completeOrder = (userId: string, userName: string, paymentMethod: string): boolean => {
+    // Verifica se o caixa está aberto
+    if (!cashState.isOpen) {
+      toast.error("O caixa precisa estar aberto para finalizar pedidos!");
+      return false;
     }
 
+    // Calcula o total do pedido
     const total = currentOrder.reduce(
       (sum, item) => sum + item.quantity * item.unitPrice,
       0
     );
 
+    // Atualiza o estoque para cada item
+    let canCompleteOrder = true;
+    currentOrder.forEach(item => {
+      // Verifica se há estoque suficiente - este é apenas um check,
+      // a função updateStock já impede atualização se ficar negativo
+      try {
+        updateStock(item.productId, -item.quantity);
+      } catch (error) {
+        canCompleteOrder = false;
+        toast.error(`Estoque insuficiente para ${item.productName}`);
+      }
+    });
+
+    if (!canCompleteOrder) {
+      return false;
+    }
+
+    // Cria o novo pedido
     const newOrder: Order = {
-      id: `order-${Date.now()}`,
-      items: currentOrder.map(({ product, ...item }) => item),
-      total,
+      id: `ord-${Date.now()}`,
+      items: [...currentOrder],
       status: "completed",
-      createdAt: new Date(),
-      completedAt: new Date(),
-      employeeId,
-      employeeName,
+      total,
+      createdAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      userId,
+      userName,
       paymentMethod
     };
 
+    // Adiciona o pedido à lista
     setOrders([...orders, newOrder]);
-    setCurrentOrder([]);
-    toast.success("Pedido finalizado com sucesso!");
-    
-    return newOrder;
+
+    // Registra a entrada no caixa
+    addCashInput(
+      userId,
+      userName,
+      total,
+      `Pedido #${newOrder.id} - ${paymentMethod}`
+    );
+
+    // Limpa o pedido atual
+    clearOrder();
+
+    return true;
   };
 
   const cancelOrder = (orderId: string) => {
     setOrders(
-      orders.map(order =>
+      orders.map((order) =>
         order.id === orderId ? { ...order, status: "cancelled" } : order
       )
     );
-    toast.success("Pedido cancelado com sucesso!");
-  };
-
-  const isSameDay = (date1: Date, date2: Date) => {
-    return (
-      date1.getFullYear() === date2.getFullYear() &&
-      date1.getMonth() === date2.getMonth() &&
-      date1.getDate() === date2.getDate()
-    );
-  };
-
-  const getOrdersByDate = (date: Date) => {
-    return orders.filter(order => isSameDay(new Date(order.createdAt), date));
   };
 
   const getOrdersByDateRange = (startDate: Date, endDate: Date) => {
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
-    
     return orders.filter(order => {
       const orderDate = new Date(order.createdAt);
-      return orderDate >= start && orderDate <= end;
+      return orderDate >= startDate && orderDate <= endDate;
     });
   };
 
-  const getOrdersTotal = (ordersToSum: Order[]) => {
-    return ordersToSum.reduce((sum, order) => 
-      order.status === "completed" ? sum + order.total : sum, 0
-    );
+  const getOrdersTotal = (filteredOrders?: Order[]) => {
+    const ordersToCalculate = filteredOrders || orders;
+    return ordersToCalculate
+      .filter(order => order.status === "completed")
+      .reduce((sum, order) => sum + order.total, 0);
   };
 
   const value = {
-    currentOrder,
     orders,
+    currentOrder,
     addItem,
     updateItem,
     removeItem,
     clearOrder,
     completeOrder,
     cancelOrder,
-    getOrdersByDate,
     getOrdersByDateRange,
     getOrdersTotal
   };

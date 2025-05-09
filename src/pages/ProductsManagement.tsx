@@ -1,3 +1,4 @@
+
 import React, { useState } from "react";
 import AppShell from "@/components/Layout/AppShell";
 import { useProducts, Product, Category } from "@/contexts/ProductContext";
@@ -30,10 +31,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Edit, Trash, Plus, Search } from "lucide-react";
+import { Edit, Trash, Plus, Search, AlertTriangle } from "lucide-react";
 
 const ProductsManagement: React.FC = () => {
-  const { products, categories, addProduct, updateProduct, deleteProduct, addCategory, updateCategory, deleteCategory } = useProducts();
+  const { products, categories, addProduct, updateProduct, deleteProduct, addCategory, updateCategory, deleteCategory, checkLowStock } = useProducts();
 
   // Estado para o formulário de produto
   const [isProductDialogOpen, setIsProductDialogOpen] = useState(false);
@@ -48,6 +49,7 @@ const ProductsManagement: React.FC = () => {
   // Estado para filtro
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [showLowStock, setShowLowStock] = useState(false);
 
   const resetProductForm = () => {
     setCurrentProduct(null);
@@ -63,7 +65,13 @@ const ProductsManagement: React.FC = () => {
 
   const handleAddProduct = () => {
     setIsEditing(false);
-    setCurrentProduct({ name: "", price: 0, category: categories[0]?.id || "" });
+    setCurrentProduct({ 
+      name: "", 
+      price: 0, 
+      category: categories[0]?.id || "",
+      stock: 0,
+      minStock: 0
+    });
     setIsProductDialogOpen(true);
   };
 
@@ -134,8 +142,15 @@ const ProductsManagement: React.FC = () => {
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          (product.description || "").toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = !selectedCategory || product.category === selectedCategory;
-    return matchesSearch && matchesCategory;
+    const matchesLowStock = !showLowStock || 
+                            (product.stock !== undefined && 
+                             product.minStock !== undefined && 
+                             product.stock <= product.minStock);
+    
+    return matchesSearch && matchesCategory && matchesLowStock;
   });
+
+  const lowStockProducts = checkLowStock();
 
   const formatPrice = (price: number) => {
     return price.toLocaleString('pt-BR', {
@@ -148,6 +163,18 @@ const ProductsManagement: React.FC = () => {
     <AppShell requireAdmin>
       <div className="space-y-6">
         <h1 className="text-3xl font-bold">Gerenciamento de Produtos</h1>
+        
+        {lowStockProducts.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-md p-4 flex items-start">
+            <AlertTriangle className="text-amber-500 mr-2 h-5 w-5 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="font-medium text-amber-800">Alerta de estoque baixo</h3>
+              <p className="text-amber-700 text-sm">
+                {lowStockProducts.length} produtos estão com estoque baixo.
+              </p>
+            </div>
+          </div>
+        )}
         
         <Tabs defaultValue="products">
           <TabsList>
@@ -183,6 +210,14 @@ const ProductsManagement: React.FC = () => {
                     ))}
                   </SelectContent>
                 </Select>
+                <Button
+                  variant="outline"
+                  className={`${showLowStock ? 'bg-amber-100' : ''}`}
+                  onClick={() => setShowLowStock(!showLowStock)}
+                >
+                  <AlertTriangle className={`mr-2 h-4 w-4 ${showLowStock ? 'text-amber-500' : ''}`} />
+                  Estoque Baixo
+                </Button>
               </div>
               <Button onClick={handleAddProduct}>
                 <Plus className="mr-2 h-4 w-4" /> Novo Produto
@@ -196,6 +231,7 @@ const ProductsManagement: React.FC = () => {
                     <TableHead>Nome</TableHead>
                     <TableHead>Categoria</TableHead>
                     <TableHead>Preço</TableHead>
+                    <TableHead>Estoque</TableHead>
                     <TableHead>Descrição</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
@@ -203,31 +239,44 @@ const ProductsManagement: React.FC = () => {
                 <TableBody>
                   {filteredProducts.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8">
+                      <TableCell colSpan={6} className="text-center py-8">
                         Nenhum produto encontrado.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredProducts.map((product) => (
-                      <TableRow key={product.id}>
-                        <TableCell className="font-medium">{product.name}</TableCell>
-                        <TableCell>
-                          {categories.find(c => c.id === product.category)?.name || 'Sem categoria'}
-                        </TableCell>
-                        <TableCell>{formatPrice(product.price)}</TableCell>
-                        <TableCell className="max-w-xs truncate">
-                          {product.description || "Sem descrição"}
-                        </TableCell>
-                        <TableCell className="text-right space-x-2">
-                          <Button variant="ghost" size="icon" onClick={() => handleEditProduct(product)}>
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDeleteProduct(product.id)}>
-                            <Trash className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    filteredProducts.map((product) => {
+                      const isLowStock = product.stock !== undefined && 
+                                         product.minStock !== undefined && 
+                                         product.stock <= product.minStock;
+                      
+                      return (
+                        <TableRow key={product.id} className={isLowStock ? 'bg-amber-50' : ''}>
+                          <TableCell className="font-medium">{product.name}</TableCell>
+                          <TableCell>
+                            {categories.find(c => c.id === product.category)?.name || 'Sem categoria'}
+                          </TableCell>
+                          <TableCell>{formatPrice(product.price)}</TableCell>
+                          <TableCell>
+                            {product.stock !== undefined ? (
+                              <span className={isLowStock ? 'text-amber-600 font-medium' : ''}>
+                                {product.stock} {isLowStock && '(Baixo)'}
+                              </span>
+                            ) : 'N/D'}
+                          </TableCell>
+                          <TableCell className="max-w-xs truncate">
+                            {product.description || "Sem descrição"}
+                          </TableCell>
+                          <TableCell className="text-right space-x-2">
+                            <Button variant="ghost" size="icon" onClick={() => handleEditProduct(product)}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => handleDeleteProduct(product.id)}>
+                              <Trash className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -283,6 +332,34 @@ const ProductsManagement: React.FC = () => {
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="product-stock">Estoque</Label>
+                      <Input 
+                        id="product-stock" 
+                        type="number" 
+                        value={currentProduct?.stock ?? ""} 
+                        onChange={e => setCurrentProduct({
+                          ...currentProduct, 
+                          stock: parseInt(e.target.value) || 0
+                        })} 
+                      />
+                    </div>
+                    
+                    <div className="grid gap-2">
+                      <Label htmlFor="product-minStock">Estoque Mínimo</Label>
+                      <Input 
+                        id="product-minStock" 
+                        type="number" 
+                        value={currentProduct?.minStock ?? ""} 
+                        onChange={e => setCurrentProduct({
+                          ...currentProduct, 
+                          minStock: parseInt(e.target.value) || 0
+                        })} 
+                      />
+                    </div>
                   </div>
                   
                   <div className="grid gap-2">

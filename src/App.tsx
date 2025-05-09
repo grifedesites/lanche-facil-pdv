@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProductProvider } from "@/contexts/ProductContext";
 import { OrderProvider } from "@/contexts/OrderContext";
+import { CashierProvider } from "@/contexts/CashierContext";
 
 import Login from "@/pages/Login";
 import POS from "@/pages/POS";
@@ -16,6 +17,8 @@ import Users from "@/pages/Users";
 import Reports from "@/pages/Reports";
 import Settings from "@/pages/Settings";
 import NotFound from "@/pages/NotFound";
+import Cashier from "@/pages/Cashier";
+import Inventory from "@/pages/Inventory";
 
 const queryClient = new QueryClient();
 
@@ -26,21 +29,25 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
-          <ProductProvider>
-            <OrderProvider>
-              <Routes>
-                <Route path="/" element={<Navigate to="/login" replace />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/pos" element={<POS />} />
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/products" element={<ProductsManagement />} />
-                <Route path="/users" element={<Users />} />
-                <Route path="/reports" element={<Reports />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </OrderProvider>
-          </ProductProvider>
+          <CashierProvider>
+            <ProductProvider>
+              <OrderProvider>
+                <Routes>
+                  <Route path="/" element={<Navigate to="/login" replace />} />
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/pos" element={<POS />} />
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/products" element={<ProductsManagement />} />
+                  <Route path="/users" element={<Users />} />
+                  <Route path="/reports" element={<Reports />} />
+                  <Route path="/settings" element={<Settings />} />
+                  <Route path="/cashier" element={<Cashier />} />
+                  <Route path="/inventory" element={<Inventory />} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </OrderProvider>
+            </ProductProvider>
+          </CashierProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

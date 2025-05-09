@@ -10,6 +10,8 @@ export interface Product {
   category: string;
   description?: string;
   image?: string;
+  stock?: number; // Quantidade em estoque
+  minStock?: number; // Estoque mínimo para alertas
 }
 
 export interface Category {
@@ -26,6 +28,8 @@ interface ProductContextType {
   addCategory: (category: Omit<Category, "id">) => void;
   updateCategory: (id: string, name: string) => void;
   deleteCategory: (id: string) => void;
+  updateStock: (id: string, quantity: number) => void; // Atualizar estoque
+  checkLowStock: () => Product[]; // Verificar produtos com estoque baixo
 }
 
 // Dados de exemplo
@@ -42,32 +46,42 @@ const MOCK_PRODUCTS: Product[] = [
     name: "X-Burger", 
     price: 15.90, 
     category: "1",
-    description: "Pão, hambúrguer, queijo, alface, tomate e maionese" 
+    description: "Pão, hambúrguer, queijo, alface, tomate e maionese",
+    stock: 50,
+    minStock: 10
   },
   { 
     id: "2", 
     name: "X-Salada", 
     price: 17.90, 
     category: "1",
-    description: "Pão, hambúrguer, queijo, alface, tomate, cebola e maionese" 
+    description: "Pão, hambúrguer, queijo, alface, tomate, cebola e maionese",
+    stock: 45,
+    minStock: 10
   },
   { 
     id: "3", 
     name: "Refrigerante Lata", 
     price: 5.00, 
-    category: "2" 
+    category: "2",
+    stock: 100,
+    minStock: 20
   },
   { 
     id: "4", 
     name: "Batata Frita P", 
     price: 8.90, 
-    category: "3" 
+    category: "3",
+    stock: 60,
+    minStock: 15
   },
   { 
     id: "5", 
     name: "Sorvete", 
     price: 7.90, 
-    category: "4" 
+    category: "4",
+    stock: 30,
+    minStock: 5
   },
 ];
 
@@ -126,6 +140,29 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
     toast.success("Categoria removida com sucesso!");
   };
 
+  // Nova função para atualizar estoque
+  const updateStock = (id: string, quantity: number) => {
+    setProducts(products.map(product => {
+      if (product.id === id) {
+        const newStock = (product.stock || 0) + quantity;
+        if (newStock < 0) {
+          toast.error(`Estoque insuficiente para o produto "${product.name}"`);
+          return product;
+        }
+        return { ...product, stock: newStock };
+      }
+      return product;
+    }));
+  };
+
+  // Verificar produtos com estoque baixo
+  const checkLowStock = () => {
+    return products.filter(
+      product => (product.stock !== undefined && product.minStock !== undefined) && 
+                 (product.stock <= product.minStock)
+    );
+  };
+
   const value = {
     products,
     categories,
@@ -134,7 +171,9 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
     deleteProduct,
     addCategory,
     updateCategory,
-    deleteCategory
+    deleteCategory,
+    updateStock,
+    checkLowStock
   };
 
   return <ProductContext.Provider value={value}>{children}</ProductContext.Provider>;

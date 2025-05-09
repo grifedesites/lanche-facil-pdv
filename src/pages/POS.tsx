@@ -1,9 +1,10 @@
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import AppShell from "@/components/Layout/AppShell";
 import { useProducts, Product } from "@/contexts/ProductContext";
 import { useOrders, OrderFormItem } from "@/contexts/OrderContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCashier } from "@/contexts/CashierContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,15 +24,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Search, Plus, Minus, Trash, ShoppingCart } from "lucide-react";
+import { Search, Plus, Minus, Trash, ShoppingCart, AlertTriangle } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const POS: React.FC = () => {
-  const { products, categories } = useProducts();
+  const { products, categories, updateStock } = useProducts();
   const { currentOrder, addItem, updateItem, removeItem, clearOrder, completeOrder } = useOrders();
   const { user } = useAuth();
+  const { cashState } = useCashier();
+  const navigate = useNavigate();
 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -41,6 +50,14 @@ const POS: React.FC = () => {
   const [itemQuantity, setItemQuantity] = useState(1);
   const [itemNotes, setItemNotes] = useState("");
   const [isEditingItem, setIsEditingItem] = useState(false);
+  const [cashierAlertOpen, setCashierAlertOpen] = useState(false);
+
+  useEffect(() => {
+    // Mostrar alerta se o caixa não estiver aberto
+    if (!cashState.isOpen) {
+      setCashierAlertOpen(true);
+    }
+  }, [cashState.isOpen]);
 
   // Calcular total do pedido
   const orderTotal = currentOrder.reduce(
@@ -52,15 +69,37 @@ const POS: React.FC = () => {
   const filteredProducts = products.filter(product => {
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = !selectedCategory || product.category === selectedCategory;
-    return matchesSearch && matchesCategory;
+    const hasStock = product.stock === undefined || product.stock > 0;
+    return matchesSearch && matchesCategory && hasStock;
   });
 
   const handleProductClick = (product: Product) => {
+    // Verificar estoque antes de adicionar
+    if (product.stock !== undefined && product.stock <= 0) {
+      toast.error(`Produto "${product.name}" sem estoque!`);
+      return;
+    }
     addItem(product, 1);
   };
 
   const handleQuantityChange = (index: number, increment: number) => {
-    const newQuantity = Math.max(1, currentOrder[index].quantity + increment);
+    const item = currentOrder[index];
+    const product = products.find(p => p.id === item.productId);
+    
+    // Verificar se há estoque suficiente para incremento
+    if (increment > 0 && product?.stock !== undefined) {
+      const currentQuantityInOrder = currentOrder
+        .filter(orderItem => orderItem.productId === item.productId)
+        .reduce((sum, orderItem) => sum + orderItem.quantity, 0);
+      
+      // Quantidade atual no pedido + incremento não pode ser maior que o estoque
+      if (currentQuantityInOrder + increment > product.stock) {
+        toast.error(`Estoque insuficiente para "${product.name}"`);
+        return;
+      }
+    }
+    
+    const newQuantity = Math.max(1, item.quantity + increment);
     updateItem(index, newQuantity);
   };
 
@@ -74,6 +113,15 @@ const POS: React.FC = () => {
 
   const handleSaveItemEdit = () => {
     if (editingItemIndex !== null) {
+      // Verificar estoque antes de salvar
+      const item = currentOrder[editingItemIndex];
+      const product = products.find(p => p.id === item.productId);
+      
+      if (product?.stock !== undefined && itemQuantity > product.stock) {
+        toast.error(`Estoque insuficiente para "${product.name}"`);
+        return;
+      }
+      
       updateItem(editingItemIndex, itemQuantity, itemNotes);
       setIsEditingItem(false);
       setEditingItemIndex(null);
@@ -81,19 +129,45 @@ const POS: React.FC = () => {
   };
 
   const handleCheckout = () => {
+    if (!cashState.isOpen) {
+      toast.error("O caixa precisa estar aberto para finalizar pedidos!");
+      setCashierAlertOpen(true);
+      return;
+    }
+    
     if (currentOrder.length === 0) {
       toast.error("Adicione produtos ao pedido antes de finalizar!");
       return;
     }
+    
+    // Verificar estoque para todos os produtos
+    let hasStock = true;
+    currentOrder.forEach(item => {
+      const product = products.find(p => p.id === item.productId);
+      if (product?.stock !== undefined && item.quantity > product.stock) {
+        toast.error(`Estoque insuficiente para "${product.name}"`);
+        hasStock = false;
+      }
+    });
+    
+    if (!hasStock) return;
+    
     setPaymentDialogOpen(true);
   };
 
   const handleCompleteOrder = () => {
     if (!user) return;
     
-    completeOrder(user.id, user.name, paymentMethod);
-    setPaymentDialogOpen(false);
-    toast.success("Pedido finalizado com sucesso!");
+    const success = completeOrder(user.id, user.name, paymentMethod);
+    
+    if (success) {
+      setPaymentDialogOpen(false);
+      toast.success("Pedido finalizado com sucesso!");
+    }
+  };
+
+  const handleOpenCashier = () => {
+    navigate("/cashier");
   };
 
   const formatPrice = (price: number) => {
@@ -105,6 +179,25 @@ const POS: React.FC = () => {
 
   return (
     <AppShell>
+      {/* Alerta de caixa fechado */}
+      {cashierAlertOpen && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Caixa Fechado</AlertTitle>
+          <AlertDescription>
+            O caixa precisa estar aberto para realizar vendas.
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleOpenCashier}
+              className="ml-2"
+            >
+              Abrir Caixa
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="h-full flex flex-col md:flex-row gap-4">
         {/* Coluna de produtos */}
         <div className="flex flex-col w-full md:w-2/3 h-full">
@@ -138,23 +231,37 @@ const POS: React.FC = () => {
 
           <div className="flex-1 overflow-y-auto">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {filteredProducts.map((product) => (
-                <Card
-                  key={product.id}
-                  className="cursor-pointer hover:shadow-md transition-shadow"
-                  onClick={() => handleProductClick(product)}
-                >
-                  <CardContent className="p-4">
-                    <div className="font-medium truncate">{product.name}</div>
-                    <div className="text-lg font-semibold text-primary">
-                      {formatPrice(product.price)}
-                    </div>
-                    <div className="text-xs text-muted-foreground truncate">
-                      {categories.find(c => c.id === product.category)?.name || 'Sem categoria'}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+              {filteredProducts.map((product) => {
+                const isLowStock = product.stock !== undefined && product.minStock !== undefined && 
+                                  product.stock <= product.minStock && product.stock > 0;
+                
+                return (
+                  <Card
+                    key={product.id}
+                    className={`cursor-pointer hover:shadow-md transition-shadow ${
+                      isLowStock ? 'border-amber-500' : ''
+                    }`}
+                    onClick={() => handleProductClick(product)}
+                  >
+                    <CardContent className="p-4">
+                      <div className="font-medium truncate">{product.name}</div>
+                      <div className="text-lg font-semibold text-primary">
+                        {formatPrice(product.price)}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {categories.find(c => c.id === product.category)?.name || 'Sem categoria'}
+                      </div>
+                      {product.stock !== undefined && (
+                        <div className={`text-xs mt-1 ${
+                          isLowStock ? 'text-amber-600 font-medium' : 'text-muted-foreground'
+                        }`}>
+                          Estoque: {product.stock} {isLowStock && '(Baixo)'}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -240,10 +347,19 @@ const POS: React.FC = () => {
             </div>
             
             <div className="mt-4 space-y-2">
-              <Button onClick={handleCheckout} className="w-full" disabled={currentOrder.length === 0}>
+              <Button 
+                onClick={handleCheckout} 
+                className="w-full" 
+                disabled={currentOrder.length === 0 || !cashState.isOpen}
+              >
                 Finalizar Pedido
               </Button>
-              <Button onClick={clearOrder} variant="outline" className="w-full" disabled={currentOrder.length === 0}>
+              <Button 
+                onClick={clearOrder} 
+                variant="outline" 
+                className="w-full" 
+                disabled={currentOrder.length === 0}
+              >
                 Limpar Pedido
               </Button>
             </div>
