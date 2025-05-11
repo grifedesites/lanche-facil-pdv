@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import { format } from "date-fns";
 import { CalendarIcon, DollarSign, TrendingUp, TrendingDown } from "lucide-react";
@@ -248,8 +247,44 @@ const CashierManagement: React.FC = () => {
   const dailyBalance = filteredOperations.reduce((acc, op) => {
     if (op.type === "inflow" || op.type === "opening" || op.type === "sale") return acc + op.amount;
     if (op.type === "outflow" || op.type === "closing") return acc - op.amount;
+    if (op.type === "shortage") return acc - op.amount;
     return acc;
   }, 0);
+
+  // Render badges for different operation types
+  const renderOperationBadge = (type: string) => {
+    switch (type) {
+      case "opening":
+        return <Badge className="bg-blue-500">Abertura</Badge>;
+      case "closing":
+        return <Badge variant="secondary">Fechamento</Badge>;
+      case "inflow":
+        return <Badge className="bg-green-500">Entrada</Badge>;
+      case "outflow":
+        return <Badge variant="destructive">Saída</Badge>;
+      case "sale":
+        return <Badge>Venda</Badge>;
+      case "shortage":
+        return <Badge className="bg-yellow-500 text-black">Quebra</Badge>;
+      default:
+        return <Badge variant="outline">{type}</Badge>;
+    }
+  };
+  
+  // Determine text color for operation amounts
+  const getOperationTextColor = (type: string) => {
+    if (["inflow", "opening", "sale"].includes(type)) {
+      return "text-green-600";
+    } else if (["outflow", "shortage"].includes(type)) {
+      return "text-red-600";
+    }
+    return "";
+  };
+  
+  // Get sign for operation amount
+  const getOperationSign = (type: string) => {
+    return ["inflow", "opening", "sale"].includes(type) ? "+ " : "- ";
+  };
 
   return (
     <AppShell requireAdmin>
@@ -379,12 +414,13 @@ const CashierManagement: React.FC = () => {
                       <TableHead>Tipo</TableHead>
                       <TableHead>Descrição</TableHead>
                       <TableHead className="text-right">Valor</TableHead>
+                      <TableHead>Operador</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredOperations.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                           Nenhuma operação encontrada para esta data.
                         </TableCell>
                       </TableRow>
@@ -395,21 +431,18 @@ const CashierManagement: React.FC = () => {
                             {format(new Date(operation.timestamp), 'HH:mm')}
                           </TableCell>
                           <TableCell>
-                            {operation.type === "opening" && <Badge className="bg-blue-500">Abertura</Badge>}
-                            {operation.type === "closing" && <Badge variant="secondary">Fechamento</Badge>}
-                            {operation.type === "inflow" && <Badge className="bg-green-500">Entrada</Badge>}
-                            {operation.type === "outflow" && <Badge variant="destructive">Saída</Badge>}
-                            {operation.type === "sale" && <Badge>Venda</Badge>}
+                            {renderOperationBadge(operation.type)}
                           </TableCell>
                           <TableCell>{operation.description}</TableCell>
                           <TableCell className={cn(
                             "text-right font-medium",
-                            operation.type === "inflow" || operation.type === "opening" || operation.type === "sale" 
-                              ? "text-green-600" 
-                              : operation.type === "outflow" ? "text-red-600" : ""
+                            getOperationTextColor(operation.type)
                           )}>
-                            {operation.type === "inflow" || operation.type === "opening" || operation.type === "sale" ? "+ " : "- "}
+                            {getOperationSign(operation.type)}
                             R$ {operation.amount.toFixed(2)}
+                          </TableCell>
+                          <TableCell>
+                            {operation.operatorName || ''}
                           </TableCell>
                         </TableRow>
                       ))
@@ -474,6 +507,10 @@ const CashierManagement: React.FC = () => {
               <div className="text-lg font-semibold">
                 R$ {currentCashier?.currentBalance.toFixed(2) || '0.00'}
               </div>
+              <p className="text-sm text-muted-foreground mt-1">
+                O valor total informado deve corresponder ao saldo atual do caixa.
+                Valores inferiores gerarão um registro de quebra de caixa.
+              </p>
             </div>
             
             <div className="space-y-4">

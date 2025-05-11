@@ -25,11 +25,12 @@ export interface CashierState {
 
 export interface CashierOperation {
   id: string;
-  type: "opening" | "closing" | "inflow" | "outflow" | "sale";
+  type: "opening" | "closing" | "inflow" | "outflow" | "sale" | "shortage";
   amount: number;
   description: string;
   timestamp: string;
   category?: string;
+  operatorName?: string;
 }
 
 export interface CurrentCashier {
@@ -56,6 +57,7 @@ interface CashierContextType {
   getCurrentBalance: () => number;
   registerCashierInflow: (amount: number, description: string, category?: string) => void;
   registerCashierOutflow: (amount: number, description: string, category?: string) => void;
+  registerCashierShortage: (amount: number, operatorName: string, reason?: string) => void;
 }
 
 // Initial state
@@ -82,6 +84,59 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
     openedAt: cashState.openedAt || new Date().toISOString(),
     currentBalance: cashState.balance
   } : null;
+
+  // Register cashier shortage
+  const registerCashierShortage = (amount: number, operatorName: string, reason: string = "Quebra de caixa") => {
+    const newOperation: CashierOperation = {
+      id: uuidv4(),
+      type: "shortage",
+      amount,
+      description: reason,
+      timestamp: new Date().toISOString(),
+      operatorName
+    };
+
+    setCashierOperations([...cashierOperations, newOperation]);
+    
+    // Save shortage to Supabase
+    saveCashierShortage(operatorName, amount, reason);
+    
+    toast.error(`Quebra de caixa registrada: R$ ${amount.toFixed(2)}`);
+  };
+  
+  // Save cashier shortage to Supabase
+  const saveCashierShortage = async (operatorName: string, amount: number, reason: string) => {
+    try {
+      // Get the open cashier
+      const { data: openCashiers, error: fetchError } = await supabase
+        .from('cashiers')
+        .select('id')
+        .eq('is_open', true)
+        .limit(1);
+      
+      if (fetchError) throw fetchError;
+      
+      if (openCashiers && openCashiers.length > 0) {
+        const cashierId = openCashiers[0].id;
+        
+        // Insert the shortage record
+        const { error } = await supabase
+          .from('cashier_operations')
+          .insert({
+            type: 'shortage',
+            description: reason,
+            amount,
+            username: operatorName,
+            user_id: null,  // Will be null as it's a system-generated record
+            category: 'shortage'
+          });
+        
+        if (error) throw error;
+      }
+    } catch (error) {
+      console.error('Error recording cashier shortage:', error);
+    }
+  };
 
   // Open cashier
   const openCashier = (userId: string, userName: string, initialAmount: number) => {
@@ -161,9 +216,7 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Verify closing password if provided
     if (password) {
-      // Check admin closing password in Supabase settings table
       try {
-        // Use raw query with known response type to avoid type issues
         const { data, error } = await supabase
           .from('settings')
           .select('*')
@@ -172,7 +225,6 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
         
         if (error) throw error;
         
-        // If password doesn't match, block closing
         if (!data || data.value !== password) {
           toast.error("Senha de fechamento incorreta!");
           return false;
@@ -182,6 +234,24 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
         toast.error("Erro ao validar senha de fechamento");
         return false;
       }
+    }
+
+    // Calculate total reported amount from reconciliation
+    let totalReportedAmount = 0;
+    if (reconciliation && reconciliation.length > 0) {
+      totalReportedAmount = reconciliation.reduce((sum, payment) => sum + payment.amount, 0);
+    }
+
+    // Check if reported amount matches current balance
+    if (totalReportedAmount < cashState.balance) {
+      // Calculate the shortage amount
+      const shortageAmount = cashState.balance - totalReportedAmount;
+      
+      // Register the shortage
+      registerCashierShortage(shortageAmount, userName);
+      
+      // Alert the user about the shortage
+      toast.warning(`Atenção: Valor informado (R$ ${totalReportedAmount.toFixed(2)}) é menor que o saldo do caixa (R$ ${cashState.balance.toFixed(2)})`);
     }
 
     const newFlow: CashFlow = {
@@ -497,7 +567,8 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
     getCashFlowsByDate,
     getCurrentBalance,
     registerCashierInflow,
-    registerCashierOutflow
+    registerCashierOutflow,
+    registerCashierShortage
   };
 
   return <CashierContext.Provider value={value}>{children}</CashierContext.Provider>;

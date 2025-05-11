@@ -7,7 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProductProvider } from "@/contexts/ProductContext";
 import { OrderProvider } from "@/contexts/OrderContext";
-import { CashierProvider } from "@/contexts/CashierContext";
+import { CashierProvider } from "@/contexts/CashierProvider";
 
 import Login from "@/pages/Login";
 import POS from "@/pages/POS";
@@ -19,6 +19,7 @@ import Settings from "@/pages/Settings";
 import NotFound from "@/pages/NotFound";
 import Cashier from "@/pages/Cashier";
 import CashierManagement from "@/pages/CashierManagement";
+import CashierReports from "@/pages/CashierReports";
 import Inventory from "@/pages/Inventory";
 import Kitchen from "@/pages/Kitchen";
 
@@ -45,6 +46,7 @@ const App = () => (
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/cashier" element={<Cashier />} />
                   <Route path="/cashier-management" element={<CashierManagement />} />
+                  <Route path="/cashier-reports" element={<CashierReports />} />
                   <Route path="/inventory" element={<Inventory />} />
                   <Route path="/kitchen" element={<Kitchen />} />
                   <Route path="*" element={<NotFound />} />
