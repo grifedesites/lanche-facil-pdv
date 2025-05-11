@@ -1,99 +1,122 @@
-
-import { NavLink } from "react-router-dom";
 import {
-  Home,
-  ShoppingBag,
-  Clipboard,
-  FileText,
-  Settings,
+  LayoutDashboard,
+  ClipboardList,
+  ShoppingCart,
   Users,
-  Menu,
-  ChefHat,
-  DollarSign,
-  Warehouse,
+  Settings,
+  Power,
+  ClipboardCheck,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
-import { cn } from "@/lib/utils";
-import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
-const Sidebar: React.FC = () => {
-  const { isAdmin } = useAuth();
-  const [collapsed, setCollapsed] = useState(false);
+interface NavItem {
+  title: string;
+  href: string;
+  icon: React.ReactNode;
+  requireAdmin?: boolean;
+}
 
-  const toggleSidebar = () => {
-    setCollapsed(!collapsed);
-  };
+const Sidebar = () => {
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
 
-  const getLinkClass = ({ isActive }: { isActive: boolean }) => {
-    return cn(
-      "flex items-center p-2 rounded-md hover:bg-primary/10 transition-colors",
-      isActive ? "bg-primary/20 font-semibold" : "font-normal"
-    );
+  const navigation: NavItem[] = [
+    {
+      title: "Dashboard",
+      href: "/",
+      icon: <LayoutDashboard className="h-5 w-5" />,
+      requireAdmin: true
+    },
+    {
+      title: "Pedidos",
+      href: "/orders",
+      icon: <ClipboardList className="h-5 w-5" />,
+    },
+    {
+      title: "Produtos",
+      href: "/products",
+      icon: <ShoppingCart className="h-5 w-5" />,
+      requireAdmin: true
+    },
+    {
+      title: "Usuários",
+      href: "/users",
+      icon: <Users className="h-5 w-5" />,
+      requireAdmin: true
+    },
+    {
+      title: "Relatórios",
+      href: "/reports",
+      icon: <ClipboardList className="h-5 w-5" />,
+      requireAdmin: true
+    },
+    {
+      title: "Gerenciar Caixa",
+      href: "/cashier-management",
+      icon: <ShoppingCart className="h-5 w-5" />,
+      requireAdmin: true
+    },
+    {
+      title: "Relatório de Caixa",
+      href: "/cashier-reports",
+      icon: <ClipboardCheck className="h-5 w-5" />,
+      requireAdmin: true
+    },
+    {
+      title: "Configurações",
+      href: "/settings",
+      icon: <Settings className="h-5 w-5" />,
+      requireAdmin: true
+    },
+  ];
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      navigate("/login");
+    } catch (error) {
+      toast.error("Erro ao fazer logout.");
+    }
   };
 
   return (
-    <aside
-      className={cn(
-        "bg-sidebar text-sidebar-foreground transition-all duration-300",
-        collapsed ? "w-16" : "w-64"
-      )}
-    >
-      <div className="p-4 flex justify-between items-center">
-        {!collapsed && <h2 className="font-semibold">Menu</h2>}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleSidebar}
-          className="ml-auto text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
+    <div className="flex flex-col h-full bg-gray-900 text-white w-64 px-4 py-6">
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold">Painel Administrativo</h1>
       </div>
+      <nav className="flex-grow">
+        <ul>
+          {navigation.map((item) => {
+            if (item.requireAdmin && !user?.isAdmin) {
+              return null;
+            }
 
-      <nav className="px-2 py-4 space-y-2">
-        {isAdmin && (
-          <>
-            <NavLink to="/dashboard" className={getLinkClass}>
-              <Home className="h-5 w-5 mr-3" />
-              {!collapsed && <span>Dashboard</span>}
-            </NavLink>
-            <NavLink to="/products" className={getLinkClass}>
-              <ShoppingBag className="h-5 w-5 mr-3" />
-              {!collapsed && <span>Produtos</span>}
-            </NavLink>
-            <NavLink to="/users" className={getLinkClass}>
-              <Users className="h-5 w-5 mr-3" />
-              {!collapsed && <span>Usuários</span>}
-            </NavLink>
-            <NavLink to="/reports" className={getLinkClass}>
-              <FileText className="h-5 w-5 mr-3" />
-              {!collapsed && <span>Relatórios</span>}
-            </NavLink>
-            <NavLink to="/cashier-management" className={getLinkClass}>
-              <DollarSign className="h-5 w-5 mr-3" />
-              {!collapsed && <span>Gerenciamento de Caixa</span>}
-            </NavLink>
-            <NavLink to="/inventory" className={getLinkClass}>
-              <Warehouse className="h-5 w-5 mr-3" />
-              {!collapsed && <span>Gerenciar Estoque</span>}
-            </NavLink>
-            <NavLink to="/settings" className={getLinkClass}>
-              <Settings className="h-5 w-5 mr-3" />
-              {!collapsed && <span>Configurações</span>}
-            </NavLink>
-          </>
-        )}
-        <NavLink to="/pos" className={getLinkClass}>
-          <Clipboard className="h-5 w-5 mr-3" />
-          {!collapsed && <span>Vendas (PDV)</span>}
-        </NavLink>
-        <NavLink to="/kitchen" className={getLinkClass}>
-          <ChefHat className="h-5 w-5 mr-3" />
-          {!collapsed && <span>Cozinha</span>}
-        </NavLink>
+            return (
+              <li key={item.href} className="mb-2">
+                <a
+                  href={item.href}
+                  className="flex items-center space-x-3 py-2 px-4 rounded-md hover:bg-gray-800 transition-colors duration-200"
+                >
+                  {item.icon}
+                  <span>{item.title}</span>
+                </a>
+              </li>
+            );
+          })}
+        </ul>
       </nav>
-    </aside>
+      <div className="border-t border-gray-700 pt-4">
+        <button
+          onClick={handleSignOut}
+          className="flex items-center space-x-3 py-2 px-4 rounded-md hover:bg-gray-800 transition-colors duration-200"
+        >
+          <Power className="h-5 w-5" />
+          <span>Sair</span>
+        </button>
+      </div>
+    </div>
   );
 };
 

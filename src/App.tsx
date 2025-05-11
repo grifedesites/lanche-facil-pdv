@@ -1,61 +1,65 @@
+import React, { useEffect, useState } from 'react';
+import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
+import { useAuth } from './contexts/AuthContext';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Home from './pages/Home';
+import Products from './pages/Products';
+import Categories from './pages/Categories';
+import Orders from './pages/Orders';
+import Users from './pages/Users';
+import Settings from './pages/Settings';
+import Reports from './pages/Reports';
+import CashierManagement from './pages/CashierManagement';
+import AppShell from './components/Layout/AppShell';
+import Loading from './components/ui/Loading';
+import { ThemeProvider } from './components/ui/theme-provider';
+import CashierReports from "./pages/CashierReports";
 
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider } from "@/contexts/AuthContext";
-import { ProductProvider } from "@/contexts/ProductContext";
-import { OrderProvider } from "@/contexts/OrderContext";
-import { CashierProvider } from "@/contexts/CashierContext";
+function App() {
+  const { authInitialized, isAuthenticated } = useAuth();
+  const [isAdmin, setIsAdmin] = useState(false);
 
-import Login from "@/pages/Login";
-import POS from "@/pages/POS";
-import Dashboard from "@/pages/Dashboard";
-import ProductsManagement from "@/pages/ProductsManagement";
-import Users from "@/pages/Users";
-import Reports from "@/pages/Reports";
-import Settings from "@/pages/Settings";
-import NotFound from "@/pages/NotFound";
-import Cashier from "@/pages/Cashier";
-import CashierManagement from "@/pages/CashierManagement";
-import Inventory from "@/pages/Inventory";
-import Kitchen from "@/pages/Kitchen";
+  useEffect(() => {
+    const checkAdminStatus = () => {
+      const storedIsAdmin = localStorage.getItem('isAdmin');
+      setIsAdmin(storedIsAdmin === 'true');
+    };
 
-const queryClient = new QueryClient();
+    checkAdminStatus();
+  }, [isAuthenticated]);
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <AuthProvider>
-          <ProductProvider>
-            <CashierProvider>
-              <OrderProvider>
-                <Routes>
-                  <Route path="/" element={<Navigate to="/login" replace />} />
-                  <Route path="/login" element={<Login />} />
-                  <Route path="/pos" element={<POS />} />
-                  <Route path="/dashboard" element={<Dashboard />} />
-                  <Route path="/products" element={<ProductsManagement />} />
-                  <Route path="/users" element={<Users />} />
-                  <Route path="/reports" element={<Reports />} />
-                  <Route path="/settings" element={<Settings />} />
-                  <Route path="/cashier" element={<Cashier />} />
-                  <Route path="/cashier-management" element={<CashierManagement />} />
-                  <Route path="/inventory" element={<Inventory />} />
-                  <Route path="/kitchen" element={<Kitchen />} />
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
-              </OrderProvider>
-            </CashierProvider>
-          </ProductProvider>
-        </AuthProvider>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+  if (!authInitialized) {
+    return <Loading />;
+  }
+
+  const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
+    return isAuthenticated ? <>{children}</> : <Navigate to="/login" />;
+  };
+
+  const AdminRoute = ({ children }: { children: React.ReactNode }) => {
+    return isAuthenticated && isAdmin ? <>{children}</> : <Navigate to="/" />;
+  };
+
+  return (
+    <ThemeProvider defaultTheme="system" storageKey="vite-react-theme">
+      <Router>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/" element={<PrivateRoute><Home /></PrivateRoute>} />
+          <Route path="/products" element={<PrivateRoute><Products /></PrivateRoute>} />
+          <Route path="/categories" element={<PrivateRoute><Categories /></PrivateRoute>} />
+          <Route path="/orders" element={<PrivateRoute><Orders /></PrivateRoute>} />
+          <Route path="/users" element={<AdminRoute><Users /></AdminRoute>} />
+          <Route path="/settings" element={<AdminRoute><Settings /></AdminRoute>} />
+          <Route path="/reports" element={<AdminRoute><Reports /></AdminRoute>} />
+          <Route path="/cashier-management" element={<AdminRoute><CashierManagement /></AdminRoute>} />
+          <Route path="/cashier-reports" element={<CashierReports />} />
+        </Routes>
+      </Router>
+    </ThemeProvider>
+  );
+}
 
 export default App;
