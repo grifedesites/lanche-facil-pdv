@@ -1,9 +1,9 @@
-
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import AppShell from "@/components/Layout/AppShell";
 import { useCashier } from "@/contexts/CashierContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { v4 as uuidv4 } from "uuid";
 
 import {
   Card,
@@ -54,6 +54,14 @@ const Cashier: React.FC = () => {
   const [outputAmount, setOutputAmount] = useState(0);
   const [description, setDescription] = useState("");
 
+  // Garantir que o usuário está autenticado
+  useEffect(() => {
+    if (!user) {
+      toast.error("É necessário estar autenticado para acessar o caixa");
+      navigate("/login");
+    }
+  }, [user, navigate]);
+
   // Filtrar os movimentos do dia atual, garantindo que cashFlows existe
   const todayFlows = cashFlows ? cashFlows.filter(flow => {
     if (!flow.timestamp) return false;
@@ -67,6 +75,13 @@ const Cashier: React.FC = () => {
     );
   }) : [];
 
+  // Função para validar UUID
+  const isValidUUID = (id: string) => {
+    if (!id) return false;
+    const uuidPattern = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+    return uuidPattern.test(id);
+  };
+
   const handleOpenCashier = () => {
     if (!user) {
       toast.error("É necessário estar logado para abrir o caixa!");
@@ -78,9 +93,19 @@ const Cashier: React.FC = () => {
       return;
     }
     
-    // Garantir que temos um ID de usuário válido
-    if (!user.id) {
-      toast.error("ID de usuário não disponível. Tente fazer login novamente.");
+    // Validar o ID do usuário
+    if (!user.id || !isValidUUID(user.id)) {
+      // Tentar gerar um novo UUID válido para o usuário
+      const newId = uuidv4();
+      const updatedUser = { ...user, id: newId };
+      
+      // Atualizar o localStorage com o novo ID
+      localStorage.setItem("pdv-user", JSON.stringify(updatedUser));
+      
+      // Tentar abrir o caixa com o novo ID
+      openCashier(newId, user.name, initialAmount);
+      setIsOpenCashierDialog(false);
+      setInitialAmount(0);
       return;
     }
     

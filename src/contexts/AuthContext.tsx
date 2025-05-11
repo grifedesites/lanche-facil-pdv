@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { v4 as uuidv4 } from 'uuid';
 
 // Tipos
 export type UserRole = "admin" | "employee";
@@ -24,14 +25,14 @@ interface AuthContextType {
 // Usuários de exemplo (em produção, isso seria validado com um backend)
 const MOCK_USERS: Record<string, User & { password: string }> = {
   "admin": {
-    id: "1",
+    id: "75442486-0878-440c-9db1-a7006c25a39f", // UUID válido
     name: "Administrador",
     username: "admin",
     password: "admin123",
     role: "admin"
   },
   "func1": {
-    id: "2",
+    id: "8a1456e8-6ef9-4ed9-8a01-24f34d5b5a39", // UUID válido
     name: "Funcionário 1",
     username: "func1",
     password: "func123",
@@ -51,6 +52,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (storedUser) {
       try {
         const parsedUser = JSON.parse(storedUser);
+        // Garantir que o ID seja um UUID válido
+        if (parsedUser && (!parsedUser.id || parsedUser.id.length < 10)) {
+          parsedUser.id = uuidv4(); // Gera um novo UUID válido se não for válido
+        }
         setUser(parsedUser);
       } catch (error) {
         localStorage.removeItem("pdv-user");
