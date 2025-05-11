@@ -7,7 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProductProvider } from "@/contexts/ProductContext";
 import { OrderProvider } from "@/contexts/OrderContext";
-import { CashierProvider } from "@/contexts/CashierProvider";
+import { CashierProvider } from "@/contexts/CashierContext";
 
 import Login from "@/pages/Login";
 import POS from "@/pages/POS";

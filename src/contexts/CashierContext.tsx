@@ -343,14 +343,15 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
               // Fallback to direct insert if RPC fails
               console.warn('Using fallback method for reconciliation insert');
               
-              // Using any type to bypass type checking for this operation
-              const { error: fallbackError } = await supabase.from('cashier_reconciliation' as any)
+              // Using direct insert instead - fixing the type error
+              const { error: fallbackError } = await supabase
+                .from('cashier_reconciliation')
                 .insert({
                   cashier_id: cashierId,
                   payment_method: payment.method,
                   reported_amount: payment.amount,
                   user_id: userId
-                } as any);
+                });
                 
               if (fallbackError) throw fallbackError;
             }
