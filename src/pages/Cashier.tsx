@@ -1,9 +1,11 @@
+
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import AppShell from "@/components/Layout/AppShell";
 import { useCashier } from "@/contexts/CashierContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { v4 as uuidv4 } from "uuid";
+import { supabase } from "@/integrations/supabase/client";
 
 import {
   Card,
@@ -53,6 +55,26 @@ const Cashier: React.FC = () => {
   const [inputAmount, setInputAmount] = useState(0);
   const [outputAmount, setOutputAmount] = useState(0);
   const [description, setDescription] = useState("");
+  const [supabaseUser, setSupabaseUser] = useState<any>(null);
+
+  // Verificar estado de autenticação do Supabase
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data } = await supabase.auth.getUser();
+      setSupabaseUser(data.user);
+      
+      if (!data.user && user) {
+        console.log("Usuário local existe, mas não está autenticado no Supabase");
+        // Fazer login anônimo no Supabase para poder usar as políticas RLS
+        const { error } = await supabase.auth.signInAnonymously();
+        if (error) {
+          console.error("Erro ao fazer login anônimo:", error.message);
+        }
+      }
+    };
+    
+    checkAuth();
+  }, [user]);
 
   // Garantir que o usuário está autenticado
   useEffect(() => {
@@ -82,7 +104,7 @@ const Cashier: React.FC = () => {
     return uuidPattern.test(id);
   };
 
-  const handleOpenCashier = () => {
+  const handleOpenCashier = async () => {
     if (!user) {
       toast.error("É necessário estar logado para abrir o caixa!");
       return;
@@ -107,6 +129,23 @@ const Cashier: React.FC = () => {
       setIsOpenCashierDialog(false);
       setInitialAmount(0);
       return;
+    }
+    
+    // Se não houver usuário autenticado no Supabase, tentar fazer login anônimo
+    if (!supabaseUser) {
+      try {
+        const { data, error } = await supabase.auth.signInAnonymously();
+        if (error) {
+          console.error("Erro ao fazer login anônimo:", error.message);
+          toast.error("Erro de autenticação. Tente novamente.");
+          return;
+        }
+        setSupabaseUser(data.user);
+      } catch (err) {
+        console.error("Erro na autenticação:", err);
+        toast.error("Erro de autenticação. Tente novamente.");
+        return;
+      }
     }
     
     openCashier(user.id, user.name, initialAmount);

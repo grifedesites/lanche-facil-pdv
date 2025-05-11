@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { v4 as uuidv4 } from 'uuid';
+import { supabase } from "@/integrations/supabase/client";
 
 // Tipos
 export type UserRole = "admin" | "employee";
@@ -57,11 +58,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           parsedUser.id = uuidv4(); // Gera um novo UUID válido se não for válido
         }
         setUser(parsedUser);
+        
+        // Opcional: Verificar se já existe uma sessão do Supabase
+        checkSupabaseSession();
       } catch (error) {
         localStorage.removeItem("pdv-user");
       }
     }
   }, []);
+  
+  // Verificar se existe uma sessão do Supabase
+  const checkSupabaseSession = async () => {
+    const { data } = await supabase.auth.getSession();
+    // Se não houver sessão no Supabase, podemos tentar fazer login anônimo
+    // ou apenas manter o fluxo baseado em localStorage como está
+    console.log("Supabase session:", data);
+  };
 
   const login = async (username: string, password: string): Promise<boolean> => {
     // Em produção, isso seria uma chamada API
@@ -69,8 +81,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     if (user && user.password === password) {
       const { password: _, ...userData } = user;
+      
+      // Garantir que o ID do usuário é um UUID válido
+      if (!userData.id || userData.id.length < 10) {
+        userData.id = uuidv4(); // Gerar um novo UUID válido
+      }
+      
       setUser(userData);
       localStorage.setItem("pdv-user", JSON.stringify(userData));
+      
+      // Para integração com Supabase, podemos fazer login anônimo ou com email/senha
+      try {
+        // Esta é uma abordagem opcional para manter a sessão no Supabase
+        // para funcionar com as políticas RLS
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: `${username}@example.com`, // Email fictício para teste
+          password: password,
+        });
+        
+        if (error) {
+          // Se o login falhar, tentar criar o usuário
+          console.warn("Erro ao fazer login no Supabase:", error.message);
+          
+          // Podemos tentar fazer login anônimo como fallback
+          const { error: anonError } = await supabase.auth.signInAnonymously();
+          if (anonError) {
+            console.warn("Erro ao fazer login anônimo:", anonError.message);
+          }
+        } else {
+          console.log("Login no Supabase bem-sucedido:", data);
+        }
+      } catch (error) {
+        console.error("Erro na autenticação Supabase:", error);
+      }
+      
       toast.success(`Bem-vindo, ${userData.name}!`);
       return true;
     }
@@ -82,6 +126,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     setUser(null);
     localStorage.removeItem("pdv-user");
+    
+    // Fazer logout do Supabase também
+    supabase.auth.signOut().catch(error => {
+      console.error("Erro ao fazer logout do Supabase:", error);
+    });
+    
     navigate("/login");
     toast.info("Você foi desconectado");
   };
