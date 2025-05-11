@@ -34,21 +34,37 @@ export interface Cashier {
   openedById: string | null;
 }
 
+// Interface para as operações de caixa formatadas para o componente
+export interface CashOperation {
+  id: string;
+  type: string; // "opening", "closing", "inflow", "outflow", "sale", "shortage"
+  description: string;
+  amount: number;
+  timestamp: string;
+  operatorName: string;
+  category?: string;
+}
+
 // Tipo do contexto do caixa
 export interface CashierContextType {
   cashState: Cashier;
   settings: SettingsRow[];
   reconciliations: CashierReconciliationRow[];
   cashFlows: CashFlow[];
+  cashierOperations: CashOperation[]; // Adicionado para CashierManagement
+  currentCashier: Cashier; // Alias para cashState
+  cashierOpen: boolean; // Alias para cashState.isOpen
   fetchCashierState: () => Promise<void>;
   fetchSettings: () => Promise<void>;
   fetchReconciliations: () => Promise<void>;
   openCashier: (userId: string, userName: string, initialAmount: number) => Promise<void>;
-  closeCashier: (userId: string, userName: string) => Promise<void>;
+  closeCashier: (userId: string, userName: string, reconciliationData?: Array<{method: string, amount: number}>, adminPassword?: string) => Promise<boolean>;
   updateSetting: (key: string, value: string) => Promise<void>;
   createReconciliation: (paymentMethod: string, reportedAmount: number) => Promise<void>;
   addCashInput: (userId: string, userName: string, amount: number, description: string) => Promise<void>;
   addCashOutput: (userId: string, userName: string, amount: number, description: string) => Promise<void>;
+  registerCashierInflow: (amount: number, description: string) => Promise<void>; // Adicionado para CashierManagement
+  registerCashierOutflow: (amount: number, description: string, category?: string) => Promise<void>; // Adicionado para CashierManagement
 }
 
 // Criação do contexto
@@ -74,6 +90,7 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
   const [settings, setSettings] = useState<SettingsRow[]>([]);
   const [reconciliations, setReconciliations] = useState<CashierReconciliationRow[]>([]);
   const [cashFlows, setCashFlows] = useState<CashFlow[]>([]);
+  const [cashierOperations, setCashierOperations] = useState<CashOperation[]>([]);
   
   const { user } = useAuth();
 
@@ -118,12 +135,71 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
       }
       
       // Busca as operações de caixa
-      await fetchCashFlows();
+      await fetchCashOperations();
     } catch (error: any) {
       console.error("Error fetching cashier state:", error.message);
       toast.error("Erro ao carregar estado do caixa.");
     }
   }, []);
+
+  // Função para buscar as operações de caixa (para CashierManagement)
+  const fetchCashOperations = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("cashier_operations")
+        .select("*")
+        .order("timestamp", { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
+      if (data) {
+        // Mapeia os dados do Supabase para o tipo CashOperation
+        const operations: CashOperation[] = data.map((op) => ({
+          id: op.id,
+          type: mapOperationType(op.type),
+          description: op.description || "",
+          amount: op.amount,
+          timestamp: op.timestamp,
+          operatorName: op.username,
+          category: op.category,
+        }));
+        
+        setCashierOperations(operations);
+        
+        // Também atualiza os fluxos de caixa tradicionais
+        const flows: CashFlow[] = data.map((op) => ({
+          id: op.id,
+          type: op.type as "open" | "close" | "input" | "output",
+          description: op.description || "",
+          amount: op.amount,
+          timestamp: op.timestamp,
+          userName: op.username,
+        }));
+        setCashFlows(flows);
+      }
+    } catch (error: any) {
+      console.error("Error fetching cash operations:", error.message);
+      toast.error("Erro ao carregar operações de caixa.");
+    }
+  }, []);
+
+  // Função para mapear os tipos de operação para formato mais amigável
+  const mapOperationType = (type: string): string => {
+    switch (type) {
+      case "open":
+        return "opening";
+      case "close":
+        return "closing";
+      case "input":
+        return "inflow";
+      case "output":
+        return "outflow";
+      default:
+        return type;
+    }
+  };
 
   // Função para buscar as configurações
   const fetchSettings = useCallback(async () => {
@@ -172,36 +248,6 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
       toast.error("Erro ao carregar conciliações de caixa.");
     }
   }, [cashState.id]);
-
-  // Função para buscar os fluxos de caixa
-  const fetchCashFlows = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from("cashier_operations")
-        .select("*")
-        .order("timestamp", { ascending: false });
-
-      if (error) {
-        throw error;
-      }
-
-      if (data) {
-        // Mapeia os dados do Supabase para o tipo CashFlow
-        const flows: CashFlow[] = data.map(op => ({
-          id: op.id,
-          type: op.type as "open" | "close" | "input" | "output",
-          description: op.description || "",
-          amount: op.amount,
-          timestamp: op.timestamp,
-          userName: op.username,
-        }));
-        setCashFlows(flows);
-      }
-    } catch (error: any) {
-      console.error("Error fetching cash flows:", error.message);
-      toast.error("Erro ao carregar movimentações de caixa.");
-    }
-  }, []);
 
   // Efeito para carregar dados iniciais
   useEffect(() => {
@@ -273,18 +319,17 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
 
       toast.success("Caixa aberto com sucesso!");
       await fetchCashierState();  // Atualiza o estado
-      await fetchCashFlows();     // Atualiza os fluxos
     } catch (error: any) {
       console.error("Error opening cashier:", error.message);
-      toast.error("Erro ao abrir caixa.");
+      toast.error("Erro ao abrir caixa: " + error.message);
     }
   };
 
   // Função para fechar o caixa
-  const closeCashier = async (userId: string, userName: string) => {
+  const closeCashier = async (userId: string, userName: string, reconciliationData?: Array<{method: string, amount: number}>, adminPassword?: string): Promise<boolean> => {
     if (!cashState.id) {
       toast.error("Não há caixa aberto.");
-      return;
+      return false;
     }
 
     try {
@@ -297,6 +342,7 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
           closed_by: userId,
           closed_by_name: userName,
           closing_balance: cashState.balance,
+          notes: adminPassword ? "Fechado com senha de administrador" : undefined,
         })
         .eq("id", cashState.id);
 
@@ -323,6 +369,13 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
         throw operationError;
       }
 
+      // Se reconciliationData foi fornecido, registra a conciliação
+      if (reconciliationData && reconciliationData.length > 0) {
+        for (const item of reconciliationData) {
+          await createReconciliation(item.method, item.amount);
+        }
+      }
+
       // Atualiza o estado local
       setCashState({
         ...cashState,
@@ -332,10 +385,11 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
 
       toast.success("Caixa fechado com sucesso!");
       await fetchCashierState();  // Atualiza o estado
-      await fetchCashFlows();     // Atualiza os fluxos
+      return true;
     } catch (error: any) {
       console.error("Error closing cashier:", error.message);
       toast.error("Erro ao fechar caixa.");
+      return false;
     }
   };
 
@@ -449,7 +503,6 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
 
       toast.success("Entrada registrada com sucesso!");
       await fetchCashierState();  // Atualiza o estado
-      await fetchCashFlows();     // Atualiza os fluxos
     } catch (error: any) {
       console.error("Error adding cash input:", error.message);
       toast.error("Erro ao registrar entrada de caixa.");
@@ -508,11 +561,29 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
 
       toast.success("Sangria registrada com sucesso!");
       await fetchCashierState();  // Atualiza o estado
-      await fetchCashFlows();     // Atualiza os fluxos
     } catch (error: any) {
       console.error("Error adding cash output:", error.message);
       toast.error("Erro ao registrar sangria de caixa.");
     }
+  };
+
+  // Funções de conveniência para CashierManagement
+  const registerCashierInflow = async (amount: number, description: string) => {
+    if (!user) {
+      toast.error("Usuário não autenticado");
+      return;
+    }
+    
+    await addCashInput(user.id, user.name, amount, description);
+  };
+  
+  const registerCashierOutflow = async (amount: number, description: string, category?: string) => {
+    if (!user) {
+      toast.error("Usuário não autenticado");
+      return;
+    }
+    
+    await addCashOutput(user.id, user.name, amount, description);
   };
 
   // Fornece o contexto
@@ -521,6 +592,9 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
     settings,
     reconciliations,
     cashFlows,
+    cashierOperations,
+    currentCashier: cashState, // Alias para compatibilidade com CashierManagement
+    cashierOpen: cashState.isOpen, // Alias para compatibilidade com CashierManagement
     fetchCashierState,
     fetchSettings,
     fetchReconciliations,
@@ -530,6 +604,8 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
     createReconciliation,
     addCashInput,
     addCashOutput,
+    registerCashierInflow,
+    registerCashierOutflow,
   };
 
   return (

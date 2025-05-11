@@ -1,209 +1,144 @@
-import React, { useState, useEffect } from "react";
-import AppShell from "@/components/Layout/AppShell";
-import { useOrders, Order, OrderItem } from "@/contexts/OrderContext";
-import { Card, CardContent, CardFooter } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatDistanceToNow } from "date-fns";
-import { ptBR } from "date-fns/locale";
-import { toast } from "sonner";
+
+import React, { useState, useEffect } from 'react';
+import { useOrders } from '@/contexts/OrderContext';
+import AppShell from '@/components/Layout/AppShell';
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { format } from 'date-fns';
 
 const Kitchen: React.FC = () => {
-  const { orders, completeOrder, markOrderAsReady, fetchOrders } = useOrders();
-  const [activeTab, setActiveTab] = useState("pending");
-
+  const { orders, updateOrderStatus } = useOrders();
+  
+  // Filtrar apenas pedidos pendentes ou em preparo
+  const [activeOrders, setActiveOrders] = useState<any[]>([]);
+  
   useEffect(() => {
-    // Fetch orders when component mounts
-    fetchOrders();
-    
-    // Set up polling to refresh orders every 30 seconds
-    const intervalId = setInterval(() => {
-      fetchOrders();
-    }, 30000);
-    
-    // Clean up interval on unmount
-    return () => clearInterval(intervalId);
-  }, [fetchOrders]);
+    const filteredOrders = orders.filter(
+      order => order.status === 'pending' || order.status === 'preparing'
+    );
+    setActiveOrders(filteredOrders);
+  }, [orders]);
 
-  // Filter orders based on active tab
-  const filteredOrders = orders.filter(order => {
-    if (activeTab === "pending") return order.status === "pending";
-    if (activeTab === "preparing") return order.status === "preparing";
-    return false;
-  });
-
-  const handleMarkAsReady = async (orderId: string) => {
-    if (markOrderAsReady) {
-      await markOrderAsReady(orderId);
-    }
-  };
-
-  const handleCompleteOrder = async (orderId: string) => {
-    await completeOrder(orderId);
-  };
-
-  const getTimeAgo = (dateString: string) => {
-    try {
-      return formatDistanceToNow(new Date(dateString), {
-        addSuffix: true,
-        locale: ptBR,
-      });
-    } catch (error) {
-      return "Data inválida";
-    }
+  const handleStatusUpdate = (orderId: string, status: string) => {
+    updateOrderStatus(orderId, status);
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case "pending":
-        return <Badge variant="destructive">Pendente</Badge>;
-      case "preparing":
-        return <Badge variant="warning">Preparando</Badge>;
-      case "completed":
-        return <Badge variant="success">Concluído</Badge>;
-      case "cancelled":
-        return <Badge variant="outline">Cancelado</Badge>;
+      case 'pending':
+        return <Badge variant="outline">Pendente</Badge>;
+      case 'preparing':
+        return <Badge>Em preparo</Badge>;
+      case 'ready':
+        return <Badge variant="secondary">Pronto</Badge>;
+      case 'completed':
+        return <Badge className="bg-green-500">Concluído</Badge>;
+      case 'cancelled':
+        return <Badge variant="destructive">Cancelado</Badge>;
       default:
-        return <Badge>{status}</Badge>;
+        return <Badge variant="outline">{status}</Badge>;
     }
+  };
+
+  const formatOrderTime = (timestamp: string) => {
+    return format(new Date(timestamp), 'HH:mm');
   };
 
   return (
     <AppShell>
       <div className="container mx-auto py-6">
-        <h1 className="text-3xl font-bold mb-6">Cozinha</h1>
-        
-        <Tabs defaultValue="pending" value={activeTab} onValueChange={setActiveTab}>
-          <div className="flex justify-between items-center mb-4">
-            <TabsList>
-              <TabsTrigger value="pending">
-                Pendentes
-                {orders.filter(o => o.status === "pending").length > 0 && (
-                  <Badge variant="destructive" className="ml-2">
-                    {orders.filter(o => o.status === "pending").length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="preparing">
-                Preparando
-                {orders.filter(o => o.status === "preparing").length > 0 && (
-                  <Badge variant="warning" className="ml-2">
-                    {orders.filter(o => o.status === "preparing").length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-            </TabsList>
-            
-            <Button variant="outline" onClick={() => fetchOrders()}>
-              Atualizar
-            </Button>
-          </div>
-          
-          <TabsContent value="pending" className="mt-0">
-            {filteredOrders.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                Não há pedidos pendentes.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredOrders.map((order) => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    timeAgo={getTimeAgo(order.createdAt)}
-                    statusBadge={getStatusBadge(order.status)}
-                    onMarkAsReady={() => handleMarkAsReady(order.id)}
-                    onComplete={() => handleCompleteOrder(order.id)}
-                    isPending={true}
-                  />
-                ))}
-              </div>
-            )}
-          </TabsContent>
-          
-          <TabsContent value="preparing" className="mt-0">
-            {filteredOrders.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                Não há pedidos em preparação.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredOrders.map((order) => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    timeAgo={getTimeAgo(order.createdAt)}
-                    statusBadge={getStatusBadge(order.status)}
-                    onMarkAsReady={() => handleMarkAsReady(order.id)}
-                    onComplete={() => handleCompleteOrder(order.id)}
-                    isPending={false}
-                  />
-                ))}
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-3xl font-bold">Cozinha</h1>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {activeOrders.length === 0 ? (
+            <div className="col-span-full text-center py-8">
+              <p className="text-muted-foreground">Nenhum pedido em espera ou em preparo.</p>
+            </div>
+          ) : (
+            activeOrders.map((order) => (
+              <Card key={order.id} className={order.status === 'pending' ? 'border-orange-400 border-2' : ''}>
+                <CardHeader className="pb-2">
+                  <div className="flex justify-between items-center">
+                    <CardTitle>Pedido #{order.id.substring(0, 8)}</CardTitle>
+                    {getStatusBadge(order.status)}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Horário: {formatOrderTime(order.createdAt)}
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[100px]">Qtd</TableHead>
+                        <TableHead>Item</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {order.items.map((item: any) => (
+                        <TableRow key={item.id}>
+                          <TableCell>{item.quantity}x</TableCell>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{item.name}</p>
+                              {item.notes && (
+                                <p className="text-xs text-muted-foreground">{item.notes}</p>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+                <CardFooter className="flex justify-between pt-2">
+                  {order.status === 'pending' ? (
+                    <Button 
+                      className="w-full" 
+                      onClick={() => handleStatusUpdate(order.id, 'preparing')}
+                    >
+                      Iniciar Preparo
+                    </Button>
+                  ) : order.status === 'preparing' ? (
+                    <Button 
+                      className="w-full" 
+                      onClick={() => handleStatusUpdate(order.id, 'ready')}
+                    >
+                      Marcar como Pronto
+                    </Button>
+                  ) : (
+                    <Button 
+                      className="w-full"
+                      variant="outline"
+                      disabled
+                    >
+                      {order.status === 'ready' ? 'Aguardando Retirada' : 'Finalizado'}
+                    </Button>
+                  )}
+                </CardFooter>
+              </Card>
+            ))
+          )}
+        </div>
       </div>
     </AppShell>
-  );
-};
-
-interface OrderCardProps {
-  order: Order;
-  timeAgo: string;
-  statusBadge: React.ReactNode;
-  onMarkAsReady: () => void;
-  onComplete: () => void;
-  isPending: boolean;
-}
-
-const OrderCard: React.FC<OrderCardProps> = ({
-  order,
-  timeAgo,
-  statusBadge,
-  onMarkAsReady,
-  onComplete,
-  isPending,
-}) => {
-  return (
-    <Card className="overflow-hidden">
-      <CardContent className="p-4">
-        <div className="flex justify-between items-start mb-2">
-          <div>
-            <h3 className="font-semibold">Pedido #{order.id.slice(0, 8)}</h3>
-            <p className="text-sm text-muted-foreground">{timeAgo}</p>
-          </div>
-          {statusBadge}
-        </div>
-        
-        <div className="mt-4">
-          <h4 className="font-medium mb-2">Itens:</h4>
-          <ul className="space-y-2">
-            {order.items.map((item: OrderItem) => (
-              <li key={item.id} className="flex justify-between">
-                <div>
-                  <span className="font-medium">{item.quantity}x</span> {item.name}
-                  {item.notes && (
-                    <p className="text-xs text-muted-foreground italic">
-                      {item.notes}
-                    </p>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </CardContent>
-      
-      <CardFooter className="bg-muted/50 p-4 flex justify-end gap-2">
-        {isPending ? (
-          <Button onClick={onMarkAsReady}>Iniciar Preparo</Button>
-        ) : (
-          <Button onClick={onComplete}>Concluir Pedido</Button>
-        )}
-      </CardFooter>
-    </Card>
   );
 };
 

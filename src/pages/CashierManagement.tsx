@@ -1,3 +1,4 @@
+
 import React, { useState } from "react";
 import { format } from "date-fns";
 import { CalendarIcon, DollarSign, TrendingUp, TrendingDown } from "lucide-react";
@@ -121,7 +122,7 @@ const CashierManagement: React.FC = () => {
     if (!currentCashier) return { total: 0, byMethod: {} };
     
     // Filter orders that were created after the cashier was opened
-    const cashierOpenTime = new Date(currentCashier.openedAt).getTime();
+    const cashierOpenTime = new Date(currentCashier.openedAt || new Date()).getTime();
     const relevantOrders = orders.filter(order => 
       order.status === "completed" && 
       new Date(order.createdAt).getTime() >= cashierOpenTime
@@ -175,14 +176,14 @@ const CashierManagement: React.FC = () => {
     })).filter(item => item.amount > 0);
     
     try {
-      const success = await closeCashier(
+      const result = await closeCashier(
         user.id, 
         user.name || user.username, 
         reconciliationData,
         adminPassword || undefined
       );
       
-      if (success) {
+      if (result) {
         setCloseCashierDialog(false);
         setClosingNotes("");
         setAdminPassword("");
