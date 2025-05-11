@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import AppShell from "@/components/Layout/AppShell";
@@ -55,21 +54,63 @@ const Cashier: React.FC = () => {
   const [inputAmount, setInputAmount] = useState(0);
   const [outputAmount, setOutputAmount] = useState(0);
   const [description, setDescription] = useState("");
-  const [supabaseUser, setSupabaseUser] = useState<any>(null);
+  const [supabaseSession, setSupabaseSession] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Verificar estado de autenticação do Supabase
   useEffect(() => {
     const checkAuth = async () => {
-      const { data } = await supabase.auth.getUser();
-      setSupabaseUser(data.user);
-      
-      if (!data.user && user) {
-        console.log("Usuário local existe, mas não está autenticado no Supabase");
-        // Fazer login anônimo no Supabase para poder usar as políticas RLS
-        const { error } = await supabase.auth.signInAnonymously();
+      setIsLoading(true);
+      try {
+        // Verificar sessão atual
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
         if (error) {
-          console.error("Erro ao fazer login anônimo:", error.message);
+          console.error("Erro ao verificar sessão:", error.message);
+          return;
         }
+        
+        setSupabaseSession(session);
+        console.log("Sessão do Supabase:", session);
+        
+        // Se não tiver sessão mas tiver usuário local, tentar autenticar
+        if (!session && user) {
+          console.log("Usuário local existe, mas não está autenticado no Supabase");
+          
+          // Tentar criar um usuário anônimo
+          const { data, error } = await supabase.auth.signUp({
+            email: `${user.username}_${Date.now()}@anonymous.com`,
+            password: `anon_${uuidv4().substring(0, 8)}`,
+            options: {
+              data: {
+                name: user.name,
+                role: user.role
+              }
+            }
+          });
+          
+          if (error) {
+            console.error("Erro ao criar usuário anônimo:", error.message);
+            
+            // Se falhar, tentar login simples
+            const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+              email: `${user.username}@example.com`,
+              password: "senha123", // Senha padrão para teste
+            });
+            
+            if (signInError) {
+              console.error("Também não foi possível fazer login:", signInError.message);
+            } else {
+              setSupabaseSession(signInData.session);
+            }
+          } else {
+            setSupabaseSession(data.session);
+          }
+        }
+      } catch (err) {
+        console.error("Erro ao verificar autenticação:", err);
+      } finally {
+        setIsLoading(false);
       }
     };
     
@@ -84,8 +125,8 @@ const Cashier: React.FC = () => {
     }
   }, [user, navigate]);
 
-  // Filtrar os movimentos do dia atual, garantindo que cashFlows existe
-  const todayFlows = cashFlows ? cashFlows.filter(flow => {
+  // Filtrar os movimentos do dia atual
+  const todayFlows = cashFlows.filter(flow => {
     if (!flow.timestamp) return false;
     
     const flowDate = new Date(flow.timestamp);
@@ -95,7 +136,7 @@ const Cashier: React.FC = () => {
       flowDate.getMonth() === today.getMonth() &&
       flowDate.getFullYear() === today.getFullYear()
     );
-  }) : [];
+  });
 
   // Função para validar UUID
   const isValidUUID = (id: string) => {
@@ -115,42 +156,32 @@ const Cashier: React.FC = () => {
       return;
     }
     
-    // Validar o ID do usuário
-    if (!user.id || !isValidUUID(user.id)) {
-      // Tentar gerar um novo UUID válido para o usuário
-      const newId = uuidv4();
-      const updatedUser = { ...user, id: newId };
-      
-      // Atualizar o localStorage com o novo ID
-      localStorage.setItem("pdv-user", JSON.stringify(updatedUser));
-      
-      // Tentar abrir o caixa com o novo ID
-      openCashier(newId, user.name, initialAmount);
-      setIsOpenCashierDialog(false);
-      setInitialAmount(0);
+    // Verificar se temos uma sessão válida no Supabase
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
+      toast.error("Erro de autenticação com o servidor. Tente fazer login novamente.");
       return;
     }
     
-    // Se não houver usuário autenticado no Supabase, tentar fazer login anônimo
-    if (!supabaseUser) {
-      try {
-        const { data, error } = await supabase.auth.signInAnonymously();
-        if (error) {
-          console.error("Erro ao fazer login anônimo:", error.message);
-          toast.error("Erro de autenticação. Tente novamente.");
-          return;
-        }
-        setSupabaseUser(data.user);
-      } catch (err) {
-        console.error("Erro na autenticação:", err);
-        toast.error("Erro de autenticação. Tente novamente.");
-        return;
-      }
+    // Validar o ID do usuário
+    let userId = user.id;
+    if (!isValidUUID(userId)) {
+      // Gerar novo UUID e atualizar o localStorage
+      userId = uuidv4();
+      const updatedUser = { ...user, id: userId };
+      localStorage.setItem("pdv-user", JSON.stringify(updatedUser));
+      toast.info("Seu ID de usuário foi atualizado para um formato compatível");
     }
     
-    openCashier(user.id, user.name, initialAmount);
-    setIsOpenCashierDialog(false);
-    setInitialAmount(0);
+    try {
+      await openCashier(userId, user.name, initialAmount);
+      setIsOpenCashierDialog(false);
+      setInitialAmount(0);
+    } catch (err: any) {
+      console.error("Erro detalhado ao abrir caixa:", err);
+      toast.error(`Erro ao abrir caixa: ${err.message || "Erro desconhecido"}`);
+    }
   };
 
   const handleCloseCashier = () => {
@@ -210,28 +241,42 @@ const Cashier: React.FC = () => {
 
   return (
     <AppShell>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">Gerenciamento de Caixa</h1>
-          
-          {cashState.isOpen ? (
-            <div className="flex gap-2">
-              <Button onClick={() => setIsCashInputDialog(true)} variant="outline" className="gap-1">
-                <Plus className="h-4 w-4" /> Suprimento
-              </Button>
-              <Button onClick={() => setIsCashOutputDialog(true)} variant="outline" className="gap-1">
-                <Minus className="h-4 w-4" /> Sangria
-              </Button>
-              <Button onClick={() => setIsCloseCashierDialog(true)} variant="destructive" className="gap-1">
-                <LogOut className="h-4 w-4" /> Fechar Caixa
-              </Button>
-            </div>
-          ) : (
-            <Button onClick={() => setIsOpenCashierDialog(true)} className="gap-1">
-              <DollarSign className="h-4 w-4" /> Abrir Caixa
-            </Button>
-          )}
+      {isLoading ? (
+        <div className="flex items-center justify-center h-40">
+          <p>Carregando...</p>
         </div>
+      ) : (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h1 className="text-3xl font-bold">Gerenciamento de Caixa</h1>
+            
+            <div className="flex items-center gap-4">
+              {!supabaseSession && (
+                <div className="text-yellow-500 text-sm flex items-center gap-1">
+                  <span className="rounded-full bg-yellow-100 p-1 w-2 h-2"></span>
+                  Modo offline
+                </div>
+              )}
+              
+              {cashState.isOpen ? (
+                <div className="flex gap-2">
+                  <Button onClick={() => setIsCashInputDialog(true)} variant="outline" className="gap-1">
+                    <Plus className="h-4 w-4" /> Suprimento
+                  </Button>
+                  <Button onClick={() => setIsCashOutputDialog(true)} variant="outline" className="gap-1">
+                    <Minus className="h-4 w-4" /> Sangria
+                  </Button>
+                  <Button onClick={() => setIsCloseCashierDialog(true)} variant="destructive" className="gap-1">
+                    <LogOut className="h-4 w-4" /> Fechar Caixa
+                  </Button>
+                </div>
+              ) : (
+                <Button onClick={() => setIsOpenCashierDialog(true)} className="gap-1">
+                  <DollarSign className="h-4 w-4" /> Abrir Caixa
+                </Button>
+              )}
+            </div>
+          </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card>
@@ -342,6 +387,7 @@ const Cashier: React.FC = () => {
           </Card>
         </div>
       </div>
+      )}
 
       {/* Diálogo para Abertura de Caixa */}
       <Dialog open={isOpenCashierDialog} onOpenChange={setIsOpenCashierDialog}>

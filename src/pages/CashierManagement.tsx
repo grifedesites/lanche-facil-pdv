@@ -1,10 +1,12 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { CalendarIcon, DollarSign, TrendingUp, TrendingDown } from "lucide-react";
 import AppShell from "@/components/Layout/AppShell";
 import { useCashier } from "@/contexts/CashierContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrders } from "@/contexts/OrderContext";
+import { supabase } from "@/integrations/supabase/client";
+import { v4 as uuidv4 } from "uuid";
 
 import {
   Card,
@@ -45,21 +47,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { z } from "zod";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 
 // Payment method types for reconciliation
 const PaymentMethods = [
@@ -87,6 +77,8 @@ const CashierManagement: React.FC = () => {
   const [outflowDialogOpen, setOutflowDialogOpen] = useState(false);
   const [openCashierDialog, setOpenCashierDialog] = useState(false);
   const [closeCashierDialog, setCloseCashierDialog] = useState(false);
+  const [supabaseSession, setSupabaseSession] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
   
   const [inflow, setInflow] = useState({
     amount: "",
@@ -142,7 +134,75 @@ const CashierManagement: React.FC = () => {
   
   const expectedAmounts = calculateExpectedAmounts();
   
-  const handleOpenCashier = () => {
+  // Verificar autenticação do Supabase
+  useEffect(() => {
+    const checkAuth = async () => {
+      setIsLoading(true);
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error("Erro ao verificar sessão:", error.message);
+          return;
+        }
+        
+        setSupabaseSession(session);
+        
+        // Se não tiver sessão mas tiver usuário local, tentar autenticar
+        if (!session && user) {
+          console.log("Tentando autenticar com Supabase");
+          
+          // Tentar criar um usuário anônimo
+          try {
+            const { data, error } = await supabase.auth.signUp({
+              email: `${user.username}_${Date.now()}@anonymous.com`,
+              password: `anon_${uuidv4().substring(0, 8)}`,
+              options: {
+                data: {
+                  name: user.name,
+                  role: user.role
+                }
+              }
+            });
+            
+            if (error) {
+              throw error;
+            }
+            
+            setSupabaseSession(data.session);
+          } catch (signUpError) {
+            console.error("Erro ao criar usuário:", signUpError);
+            
+            // Como alternativa, tentar login
+            try {
+              const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+                email: `${user.username}@example.com`,
+                password: "senha123", // Senha padrão para teste
+              });
+              
+              if (signInError) {
+                throw signInError;
+              }
+              
+              setSupabaseSession(signInData.session);
+            } catch (signInErr) {
+              console.error("Erro ao fazer login:", signInErr);
+              toast.error("Não foi possível autenticar com o servidor. Algumas funcionalidades podem estar limitadas.");
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Erro ao verificar autenticação:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    checkAuth();
+  }, [user]);
+  
+  // Função modificada para abrir o caixa com validação de UUID e sessão
+  const handleOpenCashier = async () => {
     if (!initialAmount || parseFloat(initialAmount) <= 0) {
       toast.error("Informe um valor inicial válido.");
       return;
@@ -153,12 +213,32 @@ const CashierManagement: React.FC = () => {
       return;
     }
     
+    // Verificar se temos sessão no Supabase
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
+      toast.error("Erro de autenticação com o servidor. Tente fazer login novamente.");
+      return;
+    }
+    
+    // Validar ID do usuário
+    let userId = user.id;
+    if (!userId || typeof userId !== 'string' || userId.length < 20) {
+      // Gerar novo UUID válido e atualizar no localStorage
+      userId = uuidv4();
+      const updatedUser = { ...user, id: userId };
+      localStorage.setItem("pdv-user", JSON.stringify(updatedUser));
+      toast.info("Seu ID de usuário foi atualizado para um formato compatível");
+    }
+    
     try {
-      openCashier(user.id, user.name || user.username, parseFloat(initialAmount));
+      await openCashier(userId, user.name, parseFloat(initialAmount));
       setOpenCashierDialog(false);
       setInitialAmount("");
-    } catch (error) {
-      toast.error("Erro ao abrir o caixa.");
+      toast.success("Caixa aberto com sucesso!");
+    } catch (error: any) {
+      console.error("Erro ao abrir caixa:", error);
+      toast.error(`Erro ao abrir o caixa: ${error.message || "Erro desconhecido"}`);
     }
   };
   
@@ -296,172 +376,185 @@ const CashierManagement: React.FC = () => {
 
   return (
     <AppShell requireAdmin>
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold">Gerenciamento de Caixa</h1>
-          
-          <div className="flex space-x-2">
-            {!cashierOpen ? (
-              <Button onClick={() => setOpenCashierDialog(true)}>
-                <DollarSign className="mr-2 h-4 w-4" />
-                Abrir Caixa
-              </Button>
-            ) : (
-              <Button onClick={() => setCloseCashierDialog(true)} variant="outline">
-                <DollarSign className="mr-2 h-4 w-4" />
-                Fechar Caixa
-              </Button>
-            )}
+      {isLoading ? (
+        <div className="flex items-center justify-center h-40">
+          <p>Carregando...</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h1 className="text-3xl font-bold">Gerenciamento de Caixa</h1>
+            
+            <div className="flex space-x-2 items-center">
+              {!supabaseSession && (
+                <div className="text-yellow-500 text-sm flex items-center gap-1 mr-4">
+                  <span className="rounded-full bg-yellow-100 p-1 w-2 h-2"></span>
+                  Modo offline
+                </div>
+              )}
+              
+              {!cashierOpen ? (
+                <Button onClick={() => setOpenCashierDialog(true)}>
+                  <DollarSign className="mr-2 h-4 w-4" />
+                  Abrir Caixa
+                </Button>
+              ) : (
+                <Button onClick={() => setCloseCashierDialog(true)} variant="outline">
+                  <DollarSign className="mr-2 h-4 w-4" />
+                  Fechar Caixa
+                </Button>
+              )}
+            </div>
           </div>
-        </div>
-        
-        {/* Status do Caixa */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Status do Caixa</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex justify-between items-center">
-                <span className="text-2xl font-bold">
-                  {cashierOpen ? (
-                    <Badge variant="default" className="bg-green-500">Aberto</Badge>
-                  ) : (
-                    <Badge variant="secondary">Fechado</Badge>
-                  )}
-                </span>
-                {cashierOpen && currentCashier && (
-                  <span className="text-sm text-muted-foreground">
-                    Desde {format(new Date(currentCashier.openedAt), 'dd/MM/yyyy HH:mm')}
-                  </span>
-                )}
-              </div>
-            </CardContent>
-          </Card>
           
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Saldo Atual</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                R$ {currentCashier && formatCurrencySafe(currentCashier.currentBalance || currentCashier.balance)}
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Saldo do Dia</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className={cn(
-                "text-2xl font-bold",
-                dailyBalance > 0 ? "text-green-600" : dailyBalance < 0 ? "text-red-600" : ""
-              )}>
-                R$ {dailyBalance.toFixed(2)}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-        
-        {/* Entradas e Saídas */}
-        <div className="flex flex-col md:flex-row gap-6">
-          <Card className="flex-1">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>Operações de Caixa</CardTitle>
-                <CardDescription>
-                  Histórico de entradas e saídas
-                </CardDescription>
-              </div>
-              
-              <div className="flex space-x-2">
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="ml-auto">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {date ? format(date, "dd/MM/yyyy") : "Selecionar data"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={date}
-                      onSelect={setDate}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex space-x-2 mb-4">
-                <Button 
-                  onClick={() => setInflowDialogOpen(true)}
-                  disabled={!cashierOpen}
-                >
-                  <TrendingUp className="mr-2 h-4 w-4" />
-                  Nova Entrada
-                </Button>
-                <Button 
-                  onClick={() => setOutflowDialogOpen(true)} 
-                  variant="outline"
-                  disabled={!cashierOpen}
-                >
-                  <TrendingDown className="mr-2 h-4 w-4" />
-                  Nova Saída
-                </Button>
-              </div>
-              
-              <div className="border rounded-md">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Horário</TableHead>
-                      <TableHead>Tipo</TableHead>
-                      <TableHead>Descrição</TableHead>
-                      <TableHead className="text-right">Valor</TableHead>
-                      <TableHead>Operador</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredOperations.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                          Nenhuma operação encontrada para esta data.
-                        </TableCell>
-                      </TableRow>
+          {/* Status do Caixa */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Status do Caixa</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex justify-between items-center">
+                  <span className="text-2xl font-bold">
+                    {cashierOpen ? (
+                      <Badge variant="default" className="bg-green-500">Aberto</Badge>
                     ) : (
-                      filteredOperations.map((operation) => (
-                        <TableRow key={operation.id}>
-                          <TableCell>
-                            {format(new Date(operation.timestamp), 'HH:mm')}
-                          </TableCell>
-                          <TableCell>
-                            {renderOperationBadge(operation.type)}
-                          </TableCell>
-                          <TableCell>{operation.description}</TableCell>
-                          <TableCell className={cn(
-                            "text-right font-medium",
-                            getOperationTextColor(operation.type)
-                          )}>
-                            {getOperationSign(operation.type)}
-                            R$ {operation.amount.toFixed(2)}
-                          </TableCell>
-                          <TableCell>
-                            {operation.operatorName || ''}
+                      <Badge variant="secondary">Fechado</Badge>
+                    )}
+                  </span>
+                  {cashierOpen && currentCashier && (
+                    <span className="text-sm text-muted-foreground">
+                      Desde {format(new Date(currentCashier.openedAt), 'dd/MM/yyyy HH:mm')}
+                    </span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Saldo Atual</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  R$ {currentCashier && formatCurrencySafe(currentCashier.currentBalance || currentCashier.balance)}
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Saldo do Dia</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className={cn(
+                  "text-2xl font-bold",
+                  dailyBalance > 0 ? "text-green-600" : dailyBalance < 0 ? "text-red-600" : ""
+                )}>
+                  R$ {dailyBalance.toFixed(2)}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+          
+          {/* Entradas e Saídas */}
+          <div className="flex flex-col md:flex-row gap-6">
+            <Card className="flex-1">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Operações de Caixa</CardTitle>
+                  <CardDescription>
+                    Histórico de entradas e saídas
+                  </CardDescription>
+                </div>
+                
+                <div className="flex space-x-2">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="ml-auto">
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {date ? format(date, "dd/MM/yyyy") : "Selecionar data"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <Calendar
+                        mode="single"
+                        selected={date}
+                        onSelect={setDate}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="flex space-x-2 mb-4">
+                  <Button 
+                    onClick={() => setInflowDialogOpen(true)}
+                    disabled={!cashierOpen}
+                  >
+                    <TrendingUp className="mr-2 h-4 w-4" />
+                    Nova Entrada
+                  </Button>
+                  <Button 
+                    onClick={() => setOutflowDialogOpen(true)} 
+                    variant="outline"
+                    disabled={!cashierOpen}
+                  >
+                    <TrendingDown className="mr-2 h-4 w-4" />
+                    Nova Saída
+                  </Button>
+                </div>
+                
+                <div className="border rounded-md">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Horário</TableHead>
+                        <TableHead>Tipo</TableHead>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead className="text-right">Valor</TableHead>
+                        <TableHead>Operador</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredOperations.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                            Nenhuma operação encontrada para esta data.
                           </TableCell>
                         </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
+                      ) : (
+                        filteredOperations.map((operation) => (
+                          <TableRow key={operation.id}>
+                            <TableCell>
+                              {format(new Date(operation.timestamp), 'HH:mm')}
+                            </TableCell>
+                            <TableCell>
+                              {renderOperationBadge(operation.type)}
+                            </TableCell>
+                            <TableCell>{operation.description}</TableCell>
+                            <TableCell className={cn(
+                              "text-right font-medium",
+                              getOperationTextColor(operation.type)
+                            )}>
+                              {getOperationSign(operation.type)}
+                              R$ {operation.amount.toFixed(2)}
+                            </TableCell>
+                            <TableCell>
+                              {operation.operatorName || ''}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
-      </div>
+      )}
       
       {/* Diálogo para Abertura de Caixa */}
       <Dialog open={openCashierDialog} onOpenChange={setOpenCashierDialog}>

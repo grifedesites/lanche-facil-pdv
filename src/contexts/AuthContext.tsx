@@ -47,32 +47,92 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const navigate = useNavigate();
 
-  // Verificar se há um usuário no localStorage ao iniciar
+  // Verificar se há um usuário no localStorage e estabelecer sessão do Supabase
   useEffect(() => {
-    const storedUser = localStorage.getItem("pdv-user");
-    if (storedUser) {
-      try {
-        const parsedUser = JSON.parse(storedUser);
-        // Garantir que o ID seja um UUID válido
-        if (parsedUser && (!parsedUser.id || parsedUser.id.length < 10)) {
-          parsedUser.id = uuidv4(); // Gera um novo UUID válido se não for válido
+    const setupInitialAuth = async () => {
+      // 1. Verificar se há sessão do Supabase
+      const { data: sessionData } = await supabase.auth.getSession();
+      console.log("Sessão existente do Supabase:", sessionData);
+      
+      // 2. Verificar se há usuário no localStorage
+      const storedUser = localStorage.getItem("pdv-user");
+      
+      if (storedUser) {
+        try {
+          let parsedUser = JSON.parse(storedUser);
+          
+          // Garantir que o ID seja um UUID válido
+          if (!parsedUser.id || parsedUser.id.length < 10) {
+            console.log("ID de usuário inválido, gerando novo UUID");
+            parsedUser.id = uuidv4();
+            localStorage.setItem("pdv-user", JSON.stringify(parsedUser));
+          }
+          
+          setUser(parsedUser);
+          
+          // Se temos usuário local mas não temos sessão no Supabase, tentar autenticar
+          if (!sessionData.session) {
+            console.log("Tentando autenticar com Supabase para usuário local");
+            await establishSupabaseSession(parsedUser);
+          }
+        } catch (error) {
+          console.error("Erro ao processar usuário armazenado:", error);
+          localStorage.removeItem("pdv-user");
         }
-        setUser(parsedUser);
-        
-        // Opcional: Verificar se já existe uma sessão do Supabase
-        checkSupabaseSession();
-      } catch (error) {
-        localStorage.removeItem("pdv-user");
       }
-    }
+    };
+    
+    setupInitialAuth();
   }, []);
   
-  // Verificar se existe uma sessão do Supabase
-  const checkSupabaseSession = async () => {
-    const { data } = await supabase.auth.getSession();
-    // Se não houver sessão no Supabase, podemos tentar fazer login anônimo
-    // ou apenas manter o fluxo baseado em localStorage como está
-    console.log("Supabase session:", data);
+  // Função para estabelecer uma sessão do Supabase
+  const establishSupabaseSession = async (userData: User) => {
+    try {
+      // Verificar se já existe uma sessão
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        // Tentar fazer login com email/senha primeiro (usando o nome de usuário como email)
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: `${userData.username}@example.com`,
+          password: MOCK_USERS[userData.username]?.password || "senha123", // Usar a senha do usuário mock
+        });
+        
+        if (error) {
+          console.warn("Erro ao fazer login com email/senha:", error.message);
+          
+          // Tentar login anônimo como alternativa se sign-in falhar
+          try {
+            console.log("Tentando login anônimo como alternativa");
+            const { data, error: anonError } = await supabase.auth.signUp({
+              email: `${userData.username}_${Date.now()}@anonymous.com`,
+              password: `anon_${uuidv4().substring(0, 8)}`,
+              options: {
+                data: {
+                  name: userData.name,
+                  role: userData.role
+                }
+              }
+            });
+            
+            if (anonError) {
+              throw anonError;
+            }
+            
+            console.log("Login anônimo bem-sucedido:", data);
+          } catch (anonError) {
+            console.error("Erro ao fazer login anônimo:", anonError);
+            throw anonError;
+          }
+        } else {
+          console.log("Login no Supabase bem-sucedido:", data);
+        }
+      } else {
+        console.log("Sessão existente do Supabase encontrada");
+      }
+    } catch (error) {
+      console.error("Erro ao estabelecer sessão Supabase:", error);
+    }
   };
 
   const login = async (username: string, password: string): Promise<boolean> => {
@@ -90,33 +150,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(userData);
       localStorage.setItem("pdv-user", JSON.stringify(userData));
       
-      // Para integração com Supabase, podemos fazer login anônimo ou com email/senha
+      // Estabelecer sessão no Supabase
       try {
-        // Esta é uma abordagem opcional para manter a sessão no Supabase
-        // para funcionar com as políticas RLS
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: `${username}@example.com`, // Email fictício para teste
-          password: password,
-        });
+        await establishSupabaseSession(userData);
         
-        if (error) {
-          // Se o login falhar, tentar criar o usuário
-          console.warn("Erro ao fazer login no Supabase:", error.message);
-          
-          // Podemos tentar fazer login anônimo como fallback
-          const { error: anonError } = await supabase.auth.signInAnonymously();
-          if (anonError) {
-            console.warn("Erro ao fazer login anônimo:", anonError.message);
-          }
-        } else {
-          console.log("Login no Supabase bem-sucedido:", data);
-        }
-      } catch (error) {
+        toast.success(`Bem-vindo, ${userData.name}!`);
+        return true;
+      } catch (error: any) {
         console.error("Erro na autenticação Supabase:", error);
+        // Continuar mesmo com erro no Supabase, usando apenas autenticação local
+        toast.success(`Bem-vindo, ${userData.name}!`);
+        return true;
       }
-      
-      toast.success(`Bem-vindo, ${userData.name}!`);
-      return true;
     }
     
     toast.error("Nome de usuário ou senha incorretos");
