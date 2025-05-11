@@ -27,7 +27,7 @@ export interface Order {
   items: OrderItem[];
   total: number;
   paymentMethod: string | null;
-  status: "pending" | "completed" | "cancelled";
+  status: "pending" | "completed" | "cancelled" | "preparing";
   createdAt: string;
   updatedAt: string;
   userId: string | null;
@@ -53,6 +53,11 @@ interface OrderContextType {
   getOrdersByDateRange: (startDate: Date, endDate: Date) => Order[];
   getOrdersTotal: (orders: Order[]) => number;
   markOrderAsReady?: (orderId: string) => Promise<void>;
+  
+  // Aliases para compatibilidade com o POS.tsx
+  addItem: (product: any, quantity: number) => void;
+  removeItem: (index: number) => void;
+  updateItem: (index: number, quantity: number, notes?: string) => void;
 }
 
 // Create the context
@@ -84,7 +89,7 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
         items: order.items || [],
         total: order.total,
         paymentMethod: order.payment_method,
-        status: order.status as "pending" | "completed" | "cancelled",
+        status: order.status as "pending" | "completed" | "cancelled" | "preparing",
         createdAt: order.created_at,
         updatedAt: order.completed_at || order.created_at,
         userId: order.user_id,
@@ -323,6 +328,29 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
       toast.error("Erro ao concluir pedido.");
     }
   };
+  
+  // Function to mark an order as ready (for kitchen)
+  const markOrderAsReady = async (orderId: string) => {
+    try {
+      const { error } = await supabase
+        .from("orders")
+        .update({ status: "preparing" })
+        .eq("id", orderId);
+
+      if (error) {
+        throw error;
+      }
+
+      const updatedOrders = orders.map((order) =>
+        order.id === orderId ? { ...order, status: "preparing" as const } : order
+      );
+      setOrders(updatedOrders);
+      toast.success("Pedido marcado como preparando!");
+    } catch (error: any) {
+      console.error("Error marking order as ready:", error.message);
+      toast.error("Erro ao atualizar status do pedido.");
+    }
+  };
 
   // Function to delete an order
   const deleteOrder = async (orderId: string) => {
@@ -339,6 +367,38 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (error: any) {
       console.error("Error deleting order:", error.message);
       toast.error("Erro ao excluir pedido.");
+    }
+  };
+  
+  // Métodos de compatibilidade para POS.tsx
+  const addItem = (product: any, quantity: number) => {
+    addItemToOrder(product.id, product.name, product.price);
+  };
+  
+  const removeItem = (index: number) => {
+    if (!currentOrder || !currentOrder.items[index]) return;
+    removeItemFromOrder(currentOrder.items[index].id);
+  };
+  
+  const updateItem = (index: number, quantity: number, notes?: string) => {
+    if (!currentOrder || !currentOrder.items[index]) return;
+    
+    const itemId = currentOrder.items[index].id;
+    updateItemQuantity(itemId, quantity);
+    
+    // Atualize as notas se fornecidas
+    if (notes !== undefined) {
+      // Atualize as notas do item
+      if (!currentOrder) return;
+      
+      const updatedItems = currentOrder.items.map((item, i) =>
+        i === index ? { ...item, notes } : item
+      );
+      
+      setCurrentOrder({
+        ...currentOrder,
+        items: updatedItems,
+      });
     }
   };
 
@@ -358,6 +418,11 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
     getOrdersByDate,
     getOrdersByDateRange,
     getOrdersTotal,
+    markOrderAsReady,
+    // Aliases para compatibilidade com POS.tsx
+    addItem,
+    removeItem,
+    updateItem,
   };
 
   return (

@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import AppShell from "@/components/Layout/AppShell";
 import { useProducts, Product } from "@/contexts/ProductContext";
-import { useOrders, OrderFormItem } from "@/contexts/OrderContext";
+import { useOrders, OrderItem } from "@/contexts/OrderContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCashier } from "@/contexts/CashierContext";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,8 +36,8 @@ import { Search, Plus, Minus, Trash, ShoppingCart, AlertTriangle } from "lucide-
 import { useNavigate } from "react-router-dom";
 
 const POS: React.FC = () => {
-  const { products, categories, updateStock } = useProducts();
-  const { currentOrder, addItem, updateItem, removeItem, clearOrder, completeOrder } = useOrders();
+  const { products, categories } = useProducts();
+  const { currentOrder, addItem, updateItem, removeItem, clearOrder, createOrder } = useOrders();
   const { user } = useAuth();
   const { cashState } = useCashier();
   const navigate = useNavigate();
@@ -60,10 +60,10 @@ const POS: React.FC = () => {
   }, [cashState.isOpen]);
 
   // Calcular total do pedido
-  const orderTotal = currentOrder.reduce(
-    (sum, item) => sum + item.quantity * item.unitPrice,
+  const orderTotal = currentOrder?.items.reduce(
+    (sum, item) => sum + item.quantity * item.price,
     0
-  );
+  ) || 0;
 
   // Filtrar produtos
   const filteredProducts = products.filter(product => {
@@ -83,12 +83,14 @@ const POS: React.FC = () => {
   };
 
   const handleQuantityChange = (index: number, increment: number) => {
-    const item = currentOrder[index];
+    if (!currentOrder) return;
+    
+    const item = currentOrder.items[index];
     const product = products.find(p => p.id === item.productId);
     
     // Verificar se há estoque suficiente para incremento
     if (increment > 0 && product?.stock !== undefined) {
-      const currentQuantityInOrder = currentOrder
+      const currentQuantityInOrder = currentOrder.items
         .filter(orderItem => orderItem.productId === item.productId)
         .reduce((sum, orderItem) => sum + orderItem.quantity, 0);
       
@@ -104,7 +106,9 @@ const POS: React.FC = () => {
   };
 
   const handleEditItem = (index: number) => {
-    const item = currentOrder[index];
+    if (!currentOrder) return;
+    
+    const item = currentOrder.items[index];
     setEditingItemIndex(index);
     setItemQuantity(item.quantity);
     setItemNotes(item.notes || "");
@@ -112,9 +116,9 @@ const POS: React.FC = () => {
   };
 
   const handleSaveItemEdit = () => {
-    if (editingItemIndex !== null) {
+    if (editingItemIndex !== null && currentOrder) {
       // Verificar estoque antes de salvar
-      const item = currentOrder[editingItemIndex];
+      const item = currentOrder.items[editingItemIndex];
       const product = products.find(p => p.id === item.productId);
       
       if (product?.stock !== undefined && itemQuantity > product.stock) {
@@ -135,14 +139,14 @@ const POS: React.FC = () => {
       return;
     }
     
-    if (currentOrder.length === 0) {
+    if (!currentOrder || currentOrder.items.length === 0) {
       toast.error("Adicione produtos ao pedido antes de finalizar!");
       return;
     }
     
     // Verificar estoque para todos os produtos
     let hasStock = true;
-    currentOrder.forEach(item => {
+    currentOrder.items.forEach(item => {
       const product = products.find(p => p.id === item.productId);
       if (product?.stock !== undefined && item.quantity > product.stock) {
         toast.error(`Estoque insuficiente para "${product.name}"`);
@@ -156,14 +160,8 @@ const POS: React.FC = () => {
   };
 
   const handleCompleteOrder = () => {
-    if (!user) return;
-    
-    const success = completeOrder(user.id, user.name, paymentMethod);
-    
-    if (success) {
-      setPaymentDialogOpen(false);
-      toast.success("Pedido finalizado com sucesso!");
-    }
+    createOrder(paymentMethod);
+    setPaymentDialogOpen(false);
   };
 
   const handleOpenCashier = () => {
@@ -275,18 +273,18 @@ const POS: React.FC = () => {
           </div>
 
           <div className="flex-1 overflow-y-auto p-4">
-            {currentOrder.length === 0 ? (
+            {!currentOrder || currentOrder.items.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 Nenhum item adicionado ao pedido.
               </div>
             ) : (
               <div className="space-y-4">
-                {currentOrder.map((item, index) => (
+                {currentOrder.items.map((item, index) => (
                   <div key={index} className="flex justify-between items-start pb-2 border-b">
                     <div className="flex-1">
-                      <div className="font-medium">{item.productName}</div>
+                      <div className="font-medium">{item.name}</div>
                       <div className="text-sm text-muted-foreground">
-                        {formatPrice(item.unitPrice)} × {item.quantity}
+                        {formatPrice(item.price)} × {item.quantity}
                       </div>
                       {item.notes && (
                         <div className="text-xs italic text-muted-foreground mt-1">
@@ -350,7 +348,7 @@ const POS: React.FC = () => {
               <Button 
                 onClick={handleCheckout} 
                 className="w-full" 
-                disabled={currentOrder.length === 0 || !cashState.isOpen}
+                disabled={!currentOrder || currentOrder.items.length === 0 || !cashState.isOpen}
               >
                 Finalizar Pedido
               </Button>
@@ -358,7 +356,7 @@ const POS: React.FC = () => {
                 onClick={clearOrder} 
                 variant="outline" 
                 className="w-full" 
-                disabled={currentOrder.length === 0}
+                disabled={!currentOrder || currentOrder.items.length === 0}
               >
                 Limpar Pedido
               </Button>
@@ -374,15 +372,15 @@ const POS: React.FC = () => {
             <DialogTitle>Editar Item</DialogTitle>
           </DialogHeader>
           
-          {editingItemIndex !== null && (
+          {editingItemIndex !== null && currentOrder && (
             <>
               <div className="space-y-4 py-4">
                 <div>
                   <h3 className="font-medium">
-                    {currentOrder[editingItemIndex].productName}
+                    {currentOrder.items[editingItemIndex].name}
                   </h3>
                   <p className="text-sm text-muted-foreground">
-                    {formatPrice(currentOrder[editingItemIndex].unitPrice)} cada
+                    {formatPrice(currentOrder.items[editingItemIndex].price)} cada
                   </p>
                 </div>
 
