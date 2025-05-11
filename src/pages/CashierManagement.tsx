@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import { format } from "date-fns";
 import { CalendarIcon, DollarSign, TrendingUp, TrendingDown } from "lucide-react";
@@ -287,6 +286,14 @@ const CashierManagement: React.FC = () => {
     return ["inflow", "opening", "sale"].includes(type) ? "+ " : "- ";
   };
 
+  // Função auxiliar para formatação segura de valores
+  const formatCurrencySafe = (value: number | undefined) => {
+    if (value === undefined || value === null) {
+      return "0.00";
+    }
+    return value.toFixed(2);
+  };
+
   return (
     <AppShell requireAdmin>
       <div className="space-y-6">
@@ -338,7 +345,7 @@ const CashierManagement: React.FC = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                R$ {currentCashier?.currentBalance.toFixed(2) || '0.00'}
+                R$ {currentCashier && formatCurrencySafe(currentCashier.currentBalance || currentCashier.balance)}
               </div>
             </CardContent>
           </Card>
@@ -506,7 +513,7 @@ const CashierManagement: React.FC = () => {
             <div>
               <Label>Saldo Atual</Label>
               <div className="text-lg font-semibold">
-                R$ {currentCashier?.currentBalance.toFixed(2) || '0.00'}
+                R$ {currentCashier && formatCurrencySafe(currentCashier.currentBalance || currentCashier.balance)}
               </div>
               <p className="text-sm text-muted-foreground mt-1">
                 O valor total informado deve corresponder ao saldo atual do caixa.

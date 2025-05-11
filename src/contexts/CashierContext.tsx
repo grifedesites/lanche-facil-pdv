@@ -1,4 +1,3 @@
-
 import React, {
   createContext,
   useContext,
@@ -32,6 +31,7 @@ export interface Cashier {
   closedAt: string | null;
   openedBy: string | null;
   openedById: string | null;
+  currentBalance?: number; // Adicionamos como opcional para compatibilidade
 }
 
 // Interface para as operações de caixa formatadas para o componente
@@ -118,6 +118,7 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
           closedAt: data[0].closed_at,
           openedBy: data[0].opened_by_name,
           openedById: data[0].opened_by,
+          currentBalance: data[0].current_balance, // Garantir que está mapeado
         };
         setCashState(typedCashier);
       } else {
@@ -131,6 +132,7 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
           closedAt: null,
           openedBy: null,
           openedById: null,
+          currentBalance: 0, // Adicionar com valor padrão
         });
       }
       
@@ -315,6 +317,7 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
         closedAt: null,
         openedBy: userName,
         openedById: userId,
+        currentBalance: initialAmount,
       });
 
       toast.success("Caixa aberto com sucesso!");

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useOrders } from '@/contexts/OrderContext';
 import AppShell from '@/components/Layout/AppShell';
@@ -35,7 +34,10 @@ const Kitchen: React.FC = () => {
   }, [orders]);
 
   const handleStatusUpdate = (orderId: string, status: string) => {
-    updateOrderStatus(orderId, status);
+    // Verificar se a função existe antes de chamá-la
+    if (updateOrderStatus) {
+      updateOrderStatus(orderId, status);
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -60,6 +62,7 @@ const Kitchen: React.FC = () => {
   };
 
   return (
+    
     <AppShell>
       <div className="container mx-auto py-6">
         <div className="flex justify-between items-center mb-6">
@@ -139,6 +142,7 @@ const Kitchen: React.FC = () => {
         </div>
       </div>
     </AppShell>
+    
   );
 };
 
