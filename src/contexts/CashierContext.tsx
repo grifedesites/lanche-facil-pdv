@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState } from "react";
 import { toast } from "sonner";
 import { v4 as uuidv4 } from "uuid";
@@ -260,30 +259,32 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // If reconciliation data is provided, save it
         if (reconciliation && reconciliation.length > 0) {
           for (const payment of reconciliation) {
-            // Use raw query with precise type information
-            const { error: reconcError } = await supabase
-              .rpc('insert_cashier_reconciliation', {
+            // Type-safe approach for calling RPC functions
+            const { error: reconcError } = await supabase.rpc(
+              'insert_cashier_reconciliation', 
+              {
                 p_cashier_id: cashierId, 
                 p_payment_method: payment.method,
                 p_reported_amount: payment.amount,
                 p_user_id: userId
-              });
-              
+              }
+            );
+            
             if (reconcError) {
               // Fallback to direct insert if RPC fails
               console.warn('Using fallback method for reconciliation insert');
               
-              // Using any type to bypass type checking for this operation
-              const { error: fallbackError } = await supabase.from('cashier_reconciliation' as any)
+              // Using type casting to bypass type checking for this operation
+              const { error: fallbackError } = await supabase
+                .from('cashier_reconciliation')
                 .insert({
                   cashier_id: cashierId,
                   payment_method: payment.method,
                   reported_amount: payment.amount,
                   user_id: userId
-                } as any);
-                
-              if (fallbackError) throw fallbackError;
-            }
+                });
+              
+            if (fallbackError) throw fallbackError;
           }
         }
       }
