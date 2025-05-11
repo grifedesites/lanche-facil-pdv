@@ -53,7 +53,7 @@ export interface CashierContextType {
   cashFlows: CashFlow[];
   cashierOperations: CashOperation[]; // Adicionado para CashierManagement
   currentCashier: Cashier; // Alias para cashState
-  cashierOpen: boolean; // Alias para cashState.isOpen
+  cashierOpen: Cashier['isOpen']; // Alias para cashState.isOpen
   fetchCashierState: () => Promise<void>;
   fetchSettings: () => Promise<void>;
   fetchReconciliations: () => Promise<void>;
@@ -84,6 +84,7 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
     closedAt: null,
     openedBy: null,
     openedById: null,
+    currentBalance: 0,
   });
   
   // Estados para configurações, reconciliações e fluxos de caixa
@@ -264,10 +265,15 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [cashState.id, fetchReconciliations]);
 
-  // Função para abrir o caixa
+  // Função para abrir o caixa - Corrigida para garantir que ID seja UUID válido
   const openCashier = async (userId: string, userName: string, initialAmount: number) => {
     try {
       const cashierId = uuidv4();
+      
+      // Verifica se o userId é um UUID válido
+      if (!userId || typeof userId !== 'string' || userId.length < 10) {
+        throw new Error("ID de usuário inválido");
+      }
       
       // Insere o novo registro de caixa
       const { error: cashierError } = await supabase

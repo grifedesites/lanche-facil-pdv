@@ -78,6 +78,12 @@ const Cashier: React.FC = () => {
       return;
     }
     
+    // Garantir que temos um ID de usuário válido
+    if (!user.id) {
+      toast.error("ID de usuário não disponível. Tente fazer login novamente.");
+      return;
+    }
+    
     openCashier(user.id, user.name, initialAmount);
     setIsOpenCashierDialog(false);
     setInitialAmount(0);
