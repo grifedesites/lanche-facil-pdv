@@ -47,7 +47,7 @@ import { toast } from "sonner";
 import { Calendar as CalendarIcon, DollarSign, LogOut, Plus, Minus } from "lucide-react";
 
 const Cashier: React.FC = () => {
-  const { cashState, cashFlows, openCashier, closeCashier, addCashInput, addCashOutput } = useCashier();
+  const { cashState, cashHistoryRecords, openCashier, closeCashier, addCash, removeCash } = useCashier();
   const { user } = useAuth();
   const navigate = useNavigate();
   
@@ -62,7 +62,7 @@ const Cashier: React.FC = () => {
   const [description, setDescription] = useState("");
 
   // Filtrar os movimentos do dia atual
-  const todayFlows = cashFlows.filter(flow => {
+  const todayFlows = cashHistoryRecords.filter(flow => {
     const flowDate = new Date(flow.timestamp);
     const today = new Date();
     return (
@@ -83,7 +83,7 @@ const Cashier: React.FC = () => {
       return;
     }
     
-    openCashier(user.id, user.name, initialAmount);
+    openCashier(initialAmount);
     setIsOpenCashierDialog(false);
     setInitialAmount(0);
   };
@@ -94,7 +94,7 @@ const Cashier: React.FC = () => {
       return;
     }
     
-    closeCashier(user.id, user.name);
+    closeCashier(cashState.currentAmount);
     setIsCloseCashierDialog(false);
   };
 
@@ -106,7 +106,7 @@ const Cashier: React.FC = () => {
       return;
     }
     
-    addCashInput(user.id, user.name, inputAmount, description);
+    addCash(inputAmount, description);
     setIsCashInputDialog(false);
     setInputAmount(0);
     setDescription("");
@@ -125,7 +125,7 @@ const Cashier: React.FC = () => {
       return;
     }
     
-    addCashOutput(user.id, user.name, outputAmount, description);
+    removeCash(outputAmount, description);
     setIsCashOutputDialog(false);
     setOutputAmount(0);
     setDescription("");
@@ -138,8 +138,7 @@ const Cashier: React.FC = () => {
     });
   };
 
-  const formatDateTime = (dateStr: string) => {
-    const date = new Date(dateStr);
+  const formatDateTime = (date: Date) => {
     return format(date, "dd/MM/yyyy HH:mm", { locale: ptBR });
   };
 
@@ -174,19 +173,14 @@ const Cashier: React.FC = () => {
               <CardTitle>Status do Caixa</CardTitle>
               <CardDescription>
                 {cashState.isOpen 
-                  ? `Aberto por ${cashState.openedBy} em ${formatDateTime(cashState.openedAt!)}`
+                  ? `Aberto por ${cashState.openedByName} em ${cashState.openedAt ? formatDateTime(cashState.openedAt) : ''}`
                   : "Caixa fechado"}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold">
-                {formatCurrency(cashState.balance)}
+                {formatCurrency(cashState.currentAmount)}
               </div>
-              {cashState.isOpen && (
-                <p className="text-sm text-muted-foreground">
-                  Fundo inicial: {formatCurrency(cashState.initialAmount)}
-                </p>
-              )}
             </CardContent>
             <CardFooter className="border-t pt-4">
               {cashState.isOpen ? (
@@ -237,7 +231,7 @@ const Cashier: React.FC = () => {
                       let typeLabel = "";
                       let valueClass = "";
                       
-                      switch (flow.type) {
+                      switch (flow.action) {
                         case "open":
                           typeLabel = "Abertura";
                           valueClass = "text-blue-600";
@@ -246,11 +240,11 @@ const Cashier: React.FC = () => {
                           typeLabel = "Fechamento";
                           valueClass = "text-orange-600";
                           break;
-                        case "input":
+                        case "add":
                           typeLabel = "Suprimento";
                           valueClass = "text-green-600";
                           break;
-                        case "output":
+                        case "remove":
                           typeLabel = "Sangria";
                           valueClass = "text-red-600";
                           break;
@@ -259,7 +253,7 @@ const Cashier: React.FC = () => {
                       return (
                         <TableRow key={flow.id}>
                           <TableCell>{typeLabel}</TableCell>
-                          <TableCell>{flow.description}</TableCell>
+                          <TableCell>{flow.notes || "-"}</TableCell>
                           <TableCell className={valueClass}>
                             {formatCurrency(flow.amount)}
                           </TableCell>
@@ -325,21 +319,9 @@ const Cashier: React.FC = () => {
           
           <div className="py-4">
             <div className="space-y-2">
-              <div className="flex justify-between font-medium">
-                <span>Valor inicial:</span>
-                <span>{formatCurrency(cashState.initialAmount)}</span>
-              </div>
-              <Separator />
-              <div className="flex justify-between font-medium">
-                <span>Saldo atual:</span>
-                <span>{formatCurrency(cashState.balance)}</span>
-              </div>
-              <Separator />
               <div className="flex justify-between font-bold">
-                <span>Diferença:</span>
-                <span className={cashState.balance - cashState.initialAmount >= 0 ? 'text-green-600' : 'text-red-600'}>
-                  {formatCurrency(cashState.balance - cashState.initialAmount)}
-                </span>
+                <span>Saldo atual:</span>
+                <span>{formatCurrency(cashState.currentAmount)}</span>
               </div>
             </div>
           </div>
@@ -418,12 +400,12 @@ const Cashier: React.FC = () => {
                 type="number" 
                 step="0.01"
                 min="0"
-                max={cashState.balance}
+                max={cashState.currentAmount}
                 value={outputAmount} 
                 onChange={(e) => setOutputAmount(parseFloat(e.target.value) || 0)}
               />
               <p className="text-sm text-muted-foreground">
-                Saldo disponível: {formatCurrency(cashState.balance)}
+                Saldo disponível: {formatCurrency(cashState.currentAmount)}
               </p>
             </div>
             
@@ -445,7 +427,7 @@ const Cashier: React.FC = () => {
             <Button 
               onClick={handleCashOutput}
               variant="destructive"
-              disabled={outputAmount <= 0 || outputAmount > cashState.balance}
+              disabled={outputAmount <= 0 || outputAmount > cashState.currentAmount}
             >
               Confirmar Sangria
             </Button>

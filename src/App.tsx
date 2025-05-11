@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Settings from './pages/Settings';
 import Reports from './pages/Reports';
+import Cashier from './pages/Cashier';
 import CashierManagement from './pages/CashierManagement';
 import { ThemeProvider } from './contexts/ThemeContext';
 import CashierReports from "./pages/CashierReports";
@@ -48,6 +49,7 @@ function App() {
           <Route path="/users" element={<AdminRoute><Users /></AdminRoute>} />
           <Route path="/settings" element={<AdminRoute><Settings /></AdminRoute>} />
           <Route path="/reports" element={<AdminRoute><Reports /></AdminRoute>} />
+          <Route path="/cashier" element={<PrivateRoute><Cashier /></PrivateRoute>} />
           <Route path="/cashier-management" element={<AdminRoute><CashierManagement /></AdminRoute>} />
           <Route path="/cashier-reports" element={<AdminRoute><CashierReports /></AdminRoute>} />
           <Route path="*" element={<NotFound />} />

@@ -6,6 +6,7 @@ import AppShell from "@/components/Layout/AppShell";
 import { useCashier } from "@/contexts/CashierContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrders } from "@/contexts/OrderContext";
+import { getCashierOperations, getCurrentCashier } from "@/utils/cashierUtils";
 
 import {
   Card,
@@ -46,21 +47,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { z } from "zod";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 
 // Payment method types for reconciliation
 const PaymentMethods = [
@@ -74,14 +63,18 @@ const CashierManagement: React.FC = () => {
   const { user } = useAuth();
   const { orders } = useOrders();
   const { 
-    cashierOperations,
-    registerCashierInflow,
-    registerCashierOutflow,
-    currentCashier,
+    cashState, 
+    cashHistoryRecords,
     openCashier,
     closeCashier,
-    cashierOpen
+    addCash,
+    removeCash
   } = useCashier();
+  
+  // Usar os utilitários para obter os dados formatados
+  const cashierOperations = getCashierOperations(cashHistoryRecords);
+  const currentCashier = getCurrentCashier(cashState);
+  const cashierOpen = cashState.isOpen;
   
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [inflowDialogOpen, setInflowDialogOpen] = useState(false);
@@ -155,45 +148,33 @@ const CashierManagement: React.FC = () => {
     }
     
     try {
-      openCashier(user.id, user.name || user.username, parseFloat(initialAmount));
+      openCashier(parseFloat(initialAmount));
       setOpenCashierDialog(false);
       setInitialAmount("");
+      toast.success("Caixa aberto com sucesso!");
     } catch (error) {
       toast.error("Erro ao abrir o caixa.");
     }
   };
   
-  const handleCloseCashier = async () => {
+  const handleCloseCashier = () => {
     if (!user) {
       toast.error("Usuário não autenticado.");
       return;
     }
     
-    // Convert reconciliation values to numbers
-    const reconciliationData = Object.entries(reconciliation).map(([method, amount]) => ({
-      method,
-      amount: amount ? parseFloat(amount) : 0
-    })).filter(item => item.amount > 0);
-    
     try {
-      const success = await closeCashier(
-        user.id, 
-        user.name || user.username, 
-        reconciliationData,
-        adminPassword || undefined
-      );
-      
-      if (success) {
-        setCloseCashierDialog(false);
-        setClosingNotes("");
-        setAdminPassword("");
-        setReconciliation({
-          cash: "",
-          credit_card: "",
-          debit_card: "",
-          pix: "",
-        });
-      }
+      closeCashier(cashState.currentAmount, closingNotes);
+      setCloseCashierDialog(false);
+      setClosingNotes("");
+      setAdminPassword("");
+      setReconciliation({
+        cash: "",
+        credit_card: "",
+        debit_card: "",
+        pix: "",
+      });
+      toast.success("Caixa fechado com sucesso!");
     } catch (error) {
       toast.error("Erro ao fechar o caixa.");
     }
@@ -206,9 +187,10 @@ const CashierManagement: React.FC = () => {
     }
     
     try {
-      registerCashierInflow(parseFloat(inflow.amount), inflow.description);
+      addCash(parseFloat(inflow.amount), inflow.description);
       setInflowDialogOpen(false);
       setInflow({ amount: "", description: "" });
+      toast.success("Entrada registrada com sucesso!");
     } catch (error) {
       toast.error("Erro ao registrar entrada.");
     }
@@ -221,9 +203,10 @@ const CashierManagement: React.FC = () => {
     }
     
     try {
-      registerCashierOutflow(parseFloat(outflow.amount), outflow.description, outflow.category);
+      removeCash(parseFloat(outflow.amount), outflow.description);
       setOutflowDialogOpen(false);
       setOutflow({ amount: "", description: "", category: "general" });
+      toast.success("Saída registrada com sucesso!");
     } catch (error) {
       toast.error("Erro ao registrar saída.");
     }
@@ -246,8 +229,8 @@ const CashierManagement: React.FC = () => {
   
   // Calcula o saldo do dia
   const dailyBalance = filteredOperations.reduce((acc, op) => {
-    if (op.type === "inflow" || op.type === "opening" || op.type === "sale") return acc + op.amount;
-    if (op.type === "outflow" || op.type === "closing") return acc - op.amount;
+    if (op.type === "add" || op.type === "open") return acc + op.amount;
+    if (op.type === "remove" || op.type === "close") return acc - op.amount;
     return acc;
   }, 0);
 
@@ -302,7 +285,7 @@ const CashierManagement: React.FC = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                R$ {currentCashier?.currentBalance.toFixed(2) || '0.00'}
+                R$ {cashState.currentAmount.toFixed(2) || '0.00'}
               </div>
             </CardContent>
           </Card>
@@ -395,20 +378,19 @@ const CashierManagement: React.FC = () => {
                             {format(new Date(operation.timestamp), 'HH:mm')}
                           </TableCell>
                           <TableCell>
-                            {operation.type === "opening" && <Badge className="bg-blue-500">Abertura</Badge>}
-                            {operation.type === "closing" && <Badge variant="secondary">Fechamento</Badge>}
-                            {operation.type === "inflow" && <Badge className="bg-green-500">Entrada</Badge>}
-                            {operation.type === "outflow" && <Badge variant="destructive">Saída</Badge>}
-                            {operation.type === "sale" && <Badge>Venda</Badge>}
+                            {operation.type === "open" && <Badge className="bg-blue-500">Abertura</Badge>}
+                            {operation.type === "close" && <Badge variant="secondary">Fechamento</Badge>}
+                            {operation.type === "add" && <Badge className="bg-green-500">Entrada</Badge>}
+                            {operation.type === "remove" && <Badge variant="destructive">Saída</Badge>}
                           </TableCell>
-                          <TableCell>{operation.description}</TableCell>
+                          <TableCell>{operation.description || "-"}</TableCell>
                           <TableCell className={cn(
                             "text-right font-medium",
-                            operation.type === "inflow" || operation.type === "opening" || operation.type === "sale" 
+                            operation.type === "add" || operation.type === "open" 
                               ? "text-green-600" 
-                              : operation.type === "outflow" ? "text-red-600" : ""
+                              : operation.type === "remove" ? "text-red-600" : ""
                           )}>
-                            {operation.type === "inflow" || operation.type === "opening" || operation.type === "sale" ? "+ " : "- "}
+                            {operation.type === "add" || operation.type === "open" ? "+ " : "- "}
                             R$ {operation.amount.toFixed(2)}
                           </TableCell>
                         </TableRow>
@@ -472,7 +454,7 @@ const CashierManagement: React.FC = () => {
             <div>
               <Label>Saldo Atual</Label>
               <div className="text-lg font-semibold">
-                R$ {currentCashier?.currentBalance.toFixed(2) || '0.00'}
+                R$ {cashState.currentAmount.toFixed(2) || '0.00'}
               </div>
             </div>
             
@@ -509,17 +491,6 @@ const CashierManagement: React.FC = () => {
                   );
                 })}
               </div>
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="admin-password">Senha de Administrador</Label>
-              <Input
-                id="admin-password"
-                type="password"
-                placeholder="Digite a senha de administrador"
-                value={adminPassword}
-                onChange={(e) => setAdminPassword(e.target.value)}
-              />
             </div>
             
             <div className="space-y-2">
