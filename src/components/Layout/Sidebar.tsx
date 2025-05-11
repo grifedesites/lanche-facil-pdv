@@ -1,3 +1,4 @@
+
 import {
   LayoutDashboard,
   ClipboardList,
@@ -19,7 +20,7 @@ interface NavItem {
 }
 
 const Sidebar = () => {
-  const { user, signOut } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
 
   const navigation: NavItem[] = [
@@ -74,7 +75,7 @@ const Sidebar = () => {
 
   const handleSignOut = async () => {
     try {
-      await signOut();
+      await logout();
       navigate("/login");
     } catch (error) {
       toast.error("Erro ao fazer logout.");
@@ -89,7 +90,9 @@ const Sidebar = () => {
       <nav className="flex-grow">
         <ul>
           {navigation.map((item) => {
-            if (item.requireAdmin && !user?.isAdmin) {
+            // Verifique se o usuário existe e tem a propriedade isAdmin antes de usá-la
+            const isUserAdmin = user && (user.isAdmin === true);
+            if (item.requireAdmin && !isUserAdmin) {
               return null;
             }
 
