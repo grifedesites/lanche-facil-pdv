@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import Login from './pages/Login';
@@ -17,17 +17,7 @@ import Users from './pages/Users';
 import NotFound from './pages/NotFound';
 
 function App() {
-  const { user, isAuthenticated } = useAuth();
-  const [isAdmin, setIsAdmin] = useState(false);
-
-  useEffect(() => {
-    const checkAdminStatus = () => {
-      const storedIsAdmin = localStorage.getItem('isAdmin');
-      setIsAdmin(storedIsAdmin === 'true' || (user && user.role === 'admin') || false);
-    };
-
-    checkAdminStatus();
-  }, [isAuthenticated, user]);
+  const { user, isAuthenticated, isAdmin } = useAuth();
 
   const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
     return isAuthenticated ? <>{children}</> : <Navigate to="/login" />;
@@ -52,6 +42,7 @@ function App() {
           <Route path="/cashier" element={<PrivateRoute><Cashier /></PrivateRoute>} />
           <Route path="/cashier-management" element={<AdminRoute><CashierManagement /></AdminRoute>} />
           <Route path="/cashier-reports" element={<AdminRoute><CashierReports /></AdminRoute>} />
+          <Route path="/dashboard" element={<AdminRoute><Dashboard /></AdminRoute>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Router>

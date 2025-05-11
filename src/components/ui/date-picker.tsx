@@ -16,7 +16,7 @@ import {
 interface DatePickerProps {
   date: Date | null
   setDate: (date: Date | null) => void
-  locale?: Locale
+  locale?: typeof ptBR
   className?: string
   placeholder?: string
 }
