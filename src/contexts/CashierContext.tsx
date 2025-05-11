@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useState } from "react";
 import { toast } from "sonner";
 import { v4 as uuidv4 } from "uuid";
-import { supabase, type SettingsRow, type CashierReconciliationRow } from "@/integrations/supabase/client";
+import { supabase, type SettingsRow } from "@/integrations/supabase/client";
 
 // Types
 export interface CashFlow {
@@ -275,7 +275,7 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
               // Fallback to direct insert if RPC fails
               console.warn('Using fallback method for reconciliation insert');
               
-              // Using type casting to bypass type checking for this operation
+              // Using type assertion for the table name
               const { error: fallbackError } = await supabase
                 .from('cashier_reconciliation')
                 .insert({
