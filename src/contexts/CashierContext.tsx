@@ -1,3 +1,4 @@
+
 import React, {
   createContext,
   useContext,
@@ -11,99 +12,120 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { SettingsRow, CashierReconciliationRow } from "@/integrations/supabase/client";
 
-// Define the types
+// Definição de tipos para operações de caixa
+export interface CashFlow {
+  id: string;
+  type: "open" | "close" | "input" | "output";
+  description: string;
+  amount: number;
+  timestamp: string;
+  userName: string;
+}
+
+// Definição do tipo para o estado do caixa
 export interface Cashier {
   id: string;
   isOpen: boolean;
-  openingBalance: number;
-  closingBalance: number | null;
-  openedAt: string;
+  initialAmount: number;
+  balance: number;
+  openedAt: string | null;
   closedAt: string | null;
-  userId: string | null;
-  userName: string | null;
+  openedBy: string | null;
+  openedById: string | null;
 }
 
+// Tipo do contexto do caixa
 export interface CashierContextType {
   cashState: Cashier;
   settings: SettingsRow[];
   reconciliations: CashierReconciliationRow[];
+  cashFlows: CashFlow[];
   fetchCashierState: () => Promise<void>;
   fetchSettings: () => Promise<void>;
   fetchReconciliations: () => Promise<void>;
-  openCashier: (openingBalance: number) => Promise<void>;
-  closeCashier: (closingBalance: number) => Promise<void>;
+  openCashier: (userId: string, userName: string, initialAmount: number) => Promise<void>;
+  closeCashier: (userId: string, userName: string) => Promise<void>;
   updateSetting: (key: string, value: string) => Promise<void>;
   createReconciliation: (paymentMethod: string, reportedAmount: number) => Promise<void>;
+  addCashInput: (userId: string, userName: string, amount: number, description: string) => Promise<void>;
+  addCashOutput: (userId: string, userName: string, amount: number, description: string) => Promise<void>;
 }
 
-// Create the context
+// Criação do contexto
 const CashierContext = createContext<CashierContextType | undefined>(undefined);
 
-// Create the provider
+// Provider do contexto
 export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
+  // Estado para o caixa
   const [cashState, setCashState] = useState<Cashier>({
     id: "",
     isOpen: false,
-    openingBalance: 0,
-    closingBalance: null,
-    openedAt: "",
+    initialAmount: 0,
+    balance: 0,
+    openedAt: null,
     closedAt: null,
-    userId: null,
-    userName: null,
+    openedBy: null,
+    openedById: null,
   });
+  
+  // Estados para configurações, reconciliações e fluxos de caixa
   const [settings, setSettings] = useState<SettingsRow[]>([]);
   const [reconciliations, setReconciliations] = useState<CashierReconciliationRow[]>([]);
+  const [cashFlows, setCashFlows] = useState<CashFlow[]>([]);
+  
   const { user } = useAuth();
 
-  // Function to fetch cashier state from Supabase
+  // Função para buscar o estado do caixa
   const fetchCashierState = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from("cashiers")
         .select("*")
         .order("opened_at", { ascending: false })
-        .limit(1)
-        .single();
+        .limit(1);
 
       if (error) {
         throw error;
       }
 
-      if (data) {
-        // Map the Supabase data to the Cashier type
+      if (data && data.length > 0) {
+        // Mapeia os dados do Supabase para o tipo Cashier
         const typedCashier: Cashier = {
-          id: data.id,
-          isOpen: data.is_open,
-          openingBalance: data.opening_balance,
-          closingBalance: data.closing_balance,
-          openedAt: data.opened_at,
-          closedAt: data.closed_at,
-          userId: data.user_id,
-          userName: data.username,
+          id: data[0].id,
+          isOpen: data[0].is_open,
+          initialAmount: data[0].initial_balance,
+          balance: data[0].current_balance,
+          openedAt: data[0].opened_at,
+          closedAt: data[0].closed_at,
+          openedBy: data[0].opened_by_name,
+          openedById: data[0].opened_by,
         };
         setCashState(typedCashier);
       } else {
-        // If there's no cashier data, set the state to default values
+        // Se não houver dados de caixa, define o estado com valores padrão
         setCashState({
           id: "",
           isOpen: false,
-          openingBalance: 0,
-          closingBalance: null,
-          openedAt: "",
+          initialAmount: 0,
+          balance: 0,
+          openedAt: null,
           closedAt: null,
-          userId: null,
-          userName: null,
+          openedBy: null,
+          openedById: null,
         });
       }
+      
+      // Busca as operações de caixa
+      await fetchCashFlows();
     } catch (error: any) {
       console.error("Error fetching cashier state:", error.message);
       toast.error("Erro ao carregar estado do caixa.");
     }
   }, []);
 
-  // Function to fetch settings from Supabase
+  // Função para buscar as configurações
   const fetchSettings = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -116,16 +138,7 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       if (data) {
-        // Map the Supabase data to the Settings type
-        const typedSettings: SettingsRow[] = data.map((setting) => ({
-          id: setting.id,
-          key: setting.key,
-          value: setting.value,
-          description: setting.description,
-          created_at: setting.created_at,
-          updated_at: setting.updated_at,
-        }));
-        setSettings(typedSettings);
+        setSettings(data);
       }
     } catch (error: any) {
       console.error("Error fetching settings:", error.message);
@@ -133,11 +146,16 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
-  // Function to fetch reconciliations from Supabase
+  // Função para buscar as reconciliações de caixa
   const fetchReconciliations = useCallback(async () => {
     try {
+      if (!cashState.id) {
+        setReconciliations([]);
+        return;
+      }
+
       const { data, error } = await supabase
-        .from("cashier_reconciliations")
+        .from("cashier_reconciliation")
         .select("*")
         .eq("cashier_id", cashState.id)
         .order("created_at", { ascending: false });
@@ -147,16 +165,7 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       if (data) {
-        // Map the Supabase data to the CashierReconciliation type
-        const typedReconciliations: CashierReconciliationRow[] = data.map((reconciliation) => ({
-          id: reconciliation.id,
-          cashier_id: reconciliation.cashier_id,
-          payment_method: reconciliation.payment_method,
-          reported_amount: reconciliation.reported_amount,
-          user_id: reconciliation.user_id,
-          created_at: reconciliation.created_at,
-        }));
-        setReconciliations(typedReconciliations);
+        setReconciliations(data);
       }
     } catch (error: any) {
       console.error("Error fetching reconciliations:", error.message);
@@ -164,95 +173,173 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [cashState.id]);
 
-  useEffect(() => {
-    fetchCashierState();
-    fetchSettings();
-  }, [fetchCashierState, fetchSettings]);
-
-  useEffect(() => {
-    if (cashState.id) {
-      fetchReconciliations();
-    }
-  }, [cashState.id, fetchReconciliations]);
-
-  // Function to open the cashier
-  const openCashier = async (openingBalance: number) => {
+  // Função para buscar os fluxos de caixa
+  const fetchCashFlows = useCallback(async () => {
     try {
-      const { data, error } = await supabase.from("cashiers").insert([
-        {
-          id: uuidv4(),
-          is_open: true,
-          opening_balance: openingBalance,
-          closing_balance: null,
-          opened_at: new Date().toISOString(),
-          closed_at: null,
-          user_id: user?.id || null,
-          username: user?.name || user?.username || null,
-        },
-      ]).select().single();
+      const { data, error } = await supabase
+        .from("cashier_operations")
+        .select("*")
+        .order("timestamp", { ascending: false });
 
       if (error) {
         throw error;
       }
 
       if (data) {
-        // Map the Supabase data to the Cashier type
-        const typedCashier: Cashier = {
-          id: data.id,
-          isOpen: data.is_open,
-          openingBalance: data.opening_balance,
-          closingBalance: data.closing_balance,
-          openedAt: data.opened_at,
-          closedAt: data.closed_at,
-          userId: data.user_id,
-          userName: data.username,
-        };
-        setCashState(typedCashier);
-        toast.success("Caixa aberto com sucesso!");
-        await fetchCashierState(); // Refresh cashier state after opening
+        // Mapeia os dados do Supabase para o tipo CashFlow
+        const flows: CashFlow[] = data.map(op => ({
+          id: op.id,
+          type: op.type as "open" | "close" | "input" | "output",
+          description: op.description || "",
+          amount: op.amount,
+          timestamp: op.timestamp,
+          userName: op.username,
+        }));
+        setCashFlows(flows);
       }
+    } catch (error: any) {
+      console.error("Error fetching cash flows:", error.message);
+      toast.error("Erro ao carregar movimentações de caixa.");
+    }
+  }, []);
+
+  // Efeito para carregar dados iniciais
+  useEffect(() => {
+    fetchCashierState();
+    fetchSettings();
+  }, [fetchCashierState, fetchSettings]);
+
+  // Efeito para carregar reconciliações quando o ID do caixa mudar
+  useEffect(() => {
+    if (cashState.id) {
+      fetchReconciliations();
+    }
+  }, [cashState.id, fetchReconciliations]);
+
+  // Função para abrir o caixa
+  const openCashier = async (userId: string, userName: string, initialAmount: number) => {
+    try {
+      const cashierId = uuidv4();
+      
+      // Insere o novo registro de caixa
+      const { error: cashierError } = await supabase
+        .from("cashiers")
+        .insert([
+          {
+            id: cashierId,
+            is_open: true,
+            initial_balance: initialAmount,
+            current_balance: initialAmount,
+            opened_at: new Date().toISOString(),
+            opened_by: userId,
+            opened_by_name: userName,
+          },
+        ]);
+
+      if (cashierError) {
+        throw cashierError;
+      }
+
+      // Registra a operação de abertura
+      const { error: operationError } = await supabase
+        .from("cashier_operations")
+        .insert([
+          {
+            id: uuidv4(),
+            type: "open",
+            description: "Abertura de caixa",
+            amount: initialAmount,
+            timestamp: new Date().toISOString(),
+            user_id: userId,
+            username: userName,
+          },
+        ]);
+
+      if (operationError) {
+        throw operationError;
+      }
+
+      // Atualiza o estado local
+      setCashState({
+        id: cashierId,
+        isOpen: true,
+        initialAmount: initialAmount,
+        balance: initialAmount,
+        openedAt: new Date().toISOString(),
+        closedAt: null,
+        openedBy: userName,
+        openedById: userId,
+      });
+
+      toast.success("Caixa aberto com sucesso!");
+      await fetchCashierState();  // Atualiza o estado
+      await fetchCashFlows();     // Atualiza os fluxos
     } catch (error: any) {
       console.error("Error opening cashier:", error.message);
       toast.error("Erro ao abrir caixa.");
     }
   };
 
-  // Function to close the cashier
-  const closeCashier = async (closingBalance: number) => {
+  // Função para fechar o caixa
+  const closeCashier = async (userId: string, userName: string) => {
     if (!cashState.id) {
       toast.error("Não há caixa aberto.");
       return;
     }
 
     try {
-      const { error } = await supabase
+      // Atualiza o registro do caixa
+      const { error: cashierError } = await supabase
         .from("cashiers")
         .update({
           is_open: false,
-          closing_balance: closingBalance,
           closed_at: new Date().toISOString(),
+          closed_by: userId,
+          closed_by_name: userName,
+          closing_balance: cashState.balance,
         })
         .eq("id", cashState.id);
 
-      if (error) {
-        throw error;
+      if (cashierError) {
+        throw cashierError;
       }
 
+      // Registra a operação de fechamento
+      const { error: operationError } = await supabase
+        .from("cashier_operations")
+        .insert([
+          {
+            id: uuidv4(),
+            type: "close",
+            description: "Fechamento de caixa",
+            amount: cashState.balance,
+            timestamp: new Date().toISOString(),
+            user_id: userId,
+            username: userName,
+          },
+        ]);
+
+      if (operationError) {
+        throw operationError;
+      }
+
+      // Atualiza o estado local
       setCashState({
         ...cashState,
         isOpen: false,
-        closingBalance: closingBalance,
         closedAt: new Date().toISOString(),
       });
+
       toast.success("Caixa fechado com sucesso!");
-      await fetchCashierState(); // Refresh cashier state after closing
+      await fetchCashierState();  // Atualiza o estado
+      await fetchCashFlows();     // Atualiza os fluxos
     } catch (error: any) {
       console.error("Error closing cashier:", error.message);
       toast.error("Erro ao fechar caixa.");
     }
   };
 
-  // Function to update a setting
+  // Função para atualizar uma configuração
   const updateSetting = async (key: string, value: string) => {
     try {
       const settingToUpdate = settings.find((setting) => setting.key === key);
@@ -276,14 +363,14 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
       );
       setSettings(updatedSettings);
       toast.success("Configuração atualizada com sucesso!");
-      await fetchSettings(); // Refresh settings after updating
+      await fetchSettings(); // Atualiza as configurações
     } catch (error: any) {
       console.error("Error updating setting:", error.message);
       toast.error("Erro ao atualizar configuração.");
     }
   };
 
-  // Function to create a reconciliation
+  // Função para criar uma reconciliação
   const createReconciliation = async (paymentMethod: string, reportedAmount: number) => {
     if (!cashState.id) {
       toast.error("Não há caixa aberto.");
@@ -291,33 +378,149 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     try {
-      const { error } = await supabase.from("cashier_reconciliations").insert([
-        {
-          id: uuidv4(),
-          cashier_id: cashState.id,
-          payment_method: paymentMethod,
-          reported_amount: reportedAmount,
-          user_id: user?.id || null,
-        },
-      ]);
+      const { error } = await supabase
+        .from("cashier_reconciliation")
+        .insert([
+          {
+            id: uuidv4(),
+            cashier_id: cashState.id,
+            payment_method: paymentMethod,
+            reported_amount: reportedAmount,
+            user_id: user?.id || null,
+          },
+        ]);
 
       if (error) {
         throw error;
       }
 
       toast.success("Conciliação de caixa criada com sucesso!");
-      await fetchReconciliations(); // Refresh reconciliations after creating a new one
+      await fetchReconciliations(); // Atualiza as reconciliações
     } catch (error: any) {
       console.error("Error creating reconciliation:", error.message);
       toast.error("Erro ao criar conciliação de caixa.");
     }
   };
 
-  // Provide the context value
+  // Função para adicionar entrada de caixa (suprimento)
+  const addCashInput = async (userId: string, userName: string, amount: number, description: string) => {
+    if (!cashState.id) {
+      toast.error("Não há caixa aberto.");
+      return;
+    }
+
+    try {
+      // Atualiza o saldo do caixa
+      const { error: updateError } = await supabase
+        .from("cashiers")
+        .update({
+          current_balance: cashState.balance + amount,
+        })
+        .eq("id", cashState.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      // Registra a operação
+      const { error: operationError } = await supabase
+        .from("cashier_operations")
+        .insert([
+          {
+            id: uuidv4(),
+            type: "input",
+            description: description || "Suprimento de caixa",
+            amount: amount,
+            timestamp: new Date().toISOString(),
+            user_id: userId,
+            username: userName,
+          },
+        ]);
+
+      if (operationError) {
+        throw operationError;
+      }
+
+      // Atualiza o estado local
+      setCashState({
+        ...cashState,
+        balance: cashState.balance + amount,
+      });
+
+      toast.success("Entrada registrada com sucesso!");
+      await fetchCashierState();  // Atualiza o estado
+      await fetchCashFlows();     // Atualiza os fluxos
+    } catch (error: any) {
+      console.error("Error adding cash input:", error.message);
+      toast.error("Erro ao registrar entrada de caixa.");
+    }
+  };
+
+  // Função para adicionar saída de caixa (sangria)
+  const addCashOutput = async (userId: string, userName: string, amount: number, description: string) => {
+    if (!cashState.id) {
+      toast.error("Não há caixa aberto.");
+      return;
+    }
+
+    if (amount > cashState.balance) {
+      toast.error("Saldo insuficiente para realizar sangria.");
+      return;
+    }
+
+    try {
+      // Atualiza o saldo do caixa
+      const { error: updateError } = await supabase
+        .from("cashiers")
+        .update({
+          current_balance: cashState.balance - amount,
+        })
+        .eq("id", cashState.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      // Registra a operação
+      const { error: operationError } = await supabase
+        .from("cashier_operations")
+        .insert([
+          {
+            id: uuidv4(),
+            type: "output",
+            description: description || "Sangria de caixa",
+            amount: amount,
+            timestamp: new Date().toISOString(),
+            user_id: userId,
+            username: userName,
+          },
+        ]);
+
+      if (operationError) {
+        throw operationError;
+      }
+
+      // Atualiza o estado local
+      setCashState({
+        ...cashState,
+        balance: cashState.balance - amount,
+      });
+
+      toast.success("Sangria registrada com sucesso!");
+      await fetchCashierState();  // Atualiza o estado
+      await fetchCashFlows();     // Atualiza os fluxos
+    } catch (error: any) {
+      console.error("Error adding cash output:", error.message);
+      toast.error("Erro ao registrar sangria de caixa.");
+    }
+  };
+
+  // Fornece o contexto
   const value: CashierContextType = {
     cashState,
     settings,
     reconciliations,
+    cashFlows,
     fetchCashierState,
     fetchSettings,
     fetchReconciliations,
@@ -325,6 +528,8 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
     closeCashier,
     updateSetting,
     createReconciliation,
+    addCashInput,
+    addCashOutput,
   };
 
   return (
@@ -332,7 +537,7 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 };
 
-// Create the hook
+// Hook para usar o contexto
 export const useCashier = (): CashierContextType => {
   const context = useContext(CashierContext);
   if (!context) {

@@ -25,15 +25,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
-import {
   Table,
   TableBody,
-  TableCaption,
   TableCell,
   TableHead,
   TableHeader,
@@ -44,7 +37,7 @@ import { Separator } from "@/components/ui/separator";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
-import { Calendar as CalendarIcon, DollarSign, LogOut, Plus, Minus } from "lucide-react";
+import { DollarSign, LogOut, Plus, Minus } from "lucide-react";
 
 const Cashier: React.FC = () => {
   const { cashState, cashFlows, openCashier, closeCashier, addCashInput, addCashOutput } = useCashier();
@@ -61,8 +54,10 @@ const Cashier: React.FC = () => {
   const [outputAmount, setOutputAmount] = useState(0);
   const [description, setDescription] = useState("");
 
-  // Filtrar os movimentos do dia atual
-  const todayFlows = cashFlows.filter(flow => {
+  // Filtrar os movimentos do dia atual, garantindo que cashFlows existe
+  const todayFlows = cashFlows ? cashFlows.filter(flow => {
+    if (!flow.timestamp) return false;
+    
     const flowDate = new Date(flow.timestamp);
     const today = new Date();
     return (
@@ -70,7 +65,7 @@ const Cashier: React.FC = () => {
       flowDate.getMonth() === today.getMonth() &&
       flowDate.getFullYear() === today.getFullYear()
     );
-  });
+  }) : [];
 
   const handleOpenCashier = () => {
     if (!user) {
@@ -174,7 +169,7 @@ const Cashier: React.FC = () => {
               <CardTitle>Status do Caixa</CardTitle>
               <CardDescription>
                 {cashState.isOpen 
-                  ? `Aberto por ${cashState.openedBy} em ${formatDateTime(cashState.openedAt!)}`
+                  ? `Aberto por ${cashState.openedBy || 'Usuário'} em ${cashState.openedAt ? formatDateTime(cashState.openedAt) : '-'}`
                   : "Caixa fechado"}
               </CardDescription>
             </CardHeader>
