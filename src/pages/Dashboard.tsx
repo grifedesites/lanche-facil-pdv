@@ -18,13 +18,19 @@ const formatCurrency = (value: number) => {
 };
 
 const Dashboard: React.FC = () => {
-  const { orders, getOrdersByDate, getOrdersByDateRange, getOrdersTotal } = useOrders();
+  const { orders, getOrdersByDateRange, getOrdersTotal } = useOrders();
   const today = new Date();
   
   // Dados para os gráficos
   const last7Days = Array.from({ length: 7 }).map((_, i) => {
     const date = subDays(today, 6 - i);
-    const dayOrders = getOrdersByDate(date);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+    
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    const dayOrders = getOrdersByDateRange(startOfDay, endOfDay);
     const total = getOrdersTotal(dayOrders);
     
     return {
@@ -50,12 +56,26 @@ const Dashboard: React.FC = () => {
     }, []);
 
   // Calcular totalizadores
-  const todayOrders = getOrdersByDate(today);
+  const todayStart = new Date(today);
+  todayStart.setHours(0, 0, 0, 0);
+  const todayEnd = new Date(today);
+  todayEnd.setHours(23, 59, 59, 999);
+  
+  const todayOrders = getOrdersByDateRange(todayStart, todayEnd);
   const todayTotal = getOrdersTotal(todayOrders);
-  const yesterdayOrders = getOrdersByDate(subDays(today, 1));
+  
+  const yesterdayStart = new Date(subDays(today, 1));
+  yesterdayStart.setHours(0, 0, 0, 0);
+  const yesterdayEnd = new Date(subDays(today, 1));
+  yesterdayEnd.setHours(23, 59, 59, 999);
+  
+  const yesterdayOrders = getOrdersByDateRange(yesterdayStart, yesterdayEnd);
   const yesterdayTotal = getOrdersTotal(yesterdayOrders);
   
-  const last7DaysOrders = getOrdersByDateRange(subDays(today, 6), today);
+  const last7DaysStart = new Date(subDays(today, 6));
+  last7DaysStart.setHours(0, 0, 0, 0);
+  
+  const last7DaysOrders = getOrdersByDateRange(last7DaysStart, todayEnd);
   const last7DaysTotal = getOrdersTotal(last7DaysOrders);
   
   const ticketMedio = todayOrders.length > 0 
