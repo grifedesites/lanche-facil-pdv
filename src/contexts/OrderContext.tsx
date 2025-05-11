@@ -52,7 +52,7 @@ interface OrderContextType {
   getOrdersByDate: (date: Date) => Order[];
   getOrdersByDateRange: (startDate: Date, endDate: Date) => Order[];
   getOrdersTotal: (orders: Order[]) => number;
-  markOrderAsReady?: (orderId: string) => Promise<void>;
+  markOrderAsReady: (orderId: string) => Promise<void>;
   
   // Aliases para compatibilidade com o POS.tsx
   addItem: (product: any, quantity: number) => void;
@@ -86,7 +86,7 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
       // Map the Supabase data to the Order type
       const typedOrders: Order[] = data.map((order) => ({
         id: order.id,
-        items: order.items || [],
+        items: [], // Inicializar com array vazio
         total: order.total,
         paymentMethod: order.payment_method,
         status: order.status as "pending" | "completed" | "cancelled" | "preparing",
@@ -96,6 +96,25 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
         userName: order.username,
         completedAt: order.completed_at,
       }));
+
+      // Agora, buscar os items para cada pedido
+      for (const order of typedOrders) {
+        const { data: itemsData, error: itemsError } = await supabase
+          .from("order_items")
+          .select("*")
+          .eq("order_id", order.id);
+
+        if (!itemsError && itemsData) {
+          order.items = itemsData.map(item => ({
+            id: item.id,
+            productId: item.product_id,
+            name: item.product_name,
+            quantity: item.quantity,
+            price: item.unit_price,
+            notes: item.notes
+          }));
+        }
+      }
 
       setOrders(typedOrders);
     } catch (error: any) {
@@ -248,10 +267,11 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     try {
-      const { error } = await supabase.from("orders").insert([
-        {
+      // Primeiro, inserir o pedido principal
+      const { data: orderData, error: orderError } = await supabase
+        .from("orders")
+        .insert({
           id: currentOrder.id,
-          items: currentOrder.items,
           total: currentOrder.total,
           payment_method: paymentMethod,
           status: "completed",
@@ -259,11 +279,30 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
           completed_at: new Date().toISOString(),
           user_id: user?.id || null,
           username: user?.name || user?.username || null,
-        },
-      ]);
+        })
+        .select()
+        .single();
 
-      if (error) {
-        throw error;
+      if (orderError) {
+        throw orderError;
+      }
+
+      // Em seguida, inserir os itens do pedido
+      const orderItems = currentOrder.items.map(item => ({
+        order_id: currentOrder.id,
+        product_id: item.productId,
+        product_name: item.name,
+        quantity: item.quantity,
+        unit_price: item.price,
+        notes: item.notes || null
+      }));
+
+      const { error: itemsError } = await supabase
+        .from("order_items")
+        .insert(orderItems);
+
+      if (itemsError) {
+        throw itemsError;
       }
 
       const newOrder: Order = {
