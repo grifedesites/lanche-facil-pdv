@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState } from "react";
 import { toast } from "sonner";
 import { v4 as uuidv4 } from "uuid";
@@ -37,6 +36,11 @@ export interface CurrentCashier {
   currentBalance: number;
 }
 
+export interface PaymentReconciliation {
+  method: string;
+  amount: number;
+}
+
 interface CashierContextType {
   cashState: CashierState;
   cashFlows: CashFlow[];
@@ -44,7 +48,7 @@ interface CashierContextType {
   currentCashier: CurrentCashier | null;
   cashierOpen: boolean;
   openCashier: (userId: string, userName: string, initialAmount: number) => void;
-  closeCashier: (userId: string, userName: string) => void;
+  closeCashier: (userId: string, userName: string, reconciliation?: PaymentReconciliation[], password?: string) => Promise<boolean>;
   addCashInput: (userId: string, userName: string, amount: number, description: string) => void;
   addCashOutput: (userId: string, userName: string, amount: number, description: string) => void;
   getCashFlowsByDate: (startDate: Date, endDate: Date) => CashFlow[];
@@ -148,10 +152,34 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   // Close cashier
-  const closeCashier = (userId: string, userName: string) => {
+  const closeCashier = async (userId: string, userName: string, reconciliation?: PaymentReconciliation[], password?: string): Promise<boolean> => {
     if (!cashState.isOpen) {
       toast.error("O caixa já está fechado!");
-      return;
+      return false;
+    }
+
+    // Verify closing password if provided
+    if (password) {
+      // Check admin closing password in Supabase settings table
+      try {
+        const { data: settings, error } = await supabase
+          .from('settings')
+          .select('value')
+          .eq('key', 'admin_closing_password')
+          .single();
+        
+        if (error) throw error;
+        
+        // If password doesn't match, block closing
+        if (!settings || settings.value !== password) {
+          toast.error("Senha de fechamento incorreta!");
+          return false;
+        }
+      } catch (error) {
+        console.error('Error validating closing password:', error);
+        toast.error("Erro ao validar senha de fechamento");
+        return false;
+      }
     }
 
     const newFlow: CashFlow = {
@@ -176,14 +204,21 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCashierOperations([...cashierOperations, newOperation]);
     
     // Save to Supabase
-    closeCashierInSupabase(userId, userName, cashState.balance);
-    
-    setCashState(initialCashierState);
-    toast.success("Caixa fechado com sucesso!");
+    try {
+      await closeCashierInSupabase(userId, userName, cashState.balance, reconciliation);
+      
+      setCashState(initialCashierState);
+      toast.success("Caixa fechado com sucesso!");
+      return true;
+    } catch (error) {
+      console.error('Error closing cashier:', error);
+      toast.error("Erro ao fechar o caixa");
+      return false;
+    }
   };
 
   // Close cashier in Supabase
-  const closeCashierInSupabase = async (userId: string, userName: string, closingBalance: number) => {
+  const closeCashierInSupabase = async (userId: string, userName: string, closingBalance: number, reconciliation?: PaymentReconciliation[]) => {
     try {
       // Get the open cashier
       const { data: openCashiers, error: fetchError } = await supabase
@@ -219,9 +254,22 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
           amount: closingBalance,
           description: 'Fechamento de caixa'
         });
+        
+        // If reconciliation data is provided, save it
+        if (reconciliation && reconciliation.length > 0) {
+          for (const payment of reconciliation) {
+            await supabase.from('cashier_reconciliation').insert({
+              cashier_id: cashierId,
+              payment_method: payment.method,
+              reported_amount: payment.amount,
+              user_id: userId
+            });
+          }
+        }
       }
     } catch (error) {
       console.error('Error closing cashier in Supabase:', error);
+      throw error;
     }
   };
 

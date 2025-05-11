@@ -5,6 +5,7 @@ import { CalendarIcon, DollarSign, TrendingUp, TrendingDown } from "lucide-react
 import AppShell from "@/components/Layout/AppShell";
 import { useCashier } from "@/contexts/CashierContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrders } from "@/contexts/OrderContext";
 
 import {
   Card,
@@ -45,12 +46,33 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { z } from "zod";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+
+// Payment method types for reconciliation
+const PaymentMethods = [
+  { id: "cash", name: "Dinheiro" },
+  { id: "credit_card", name: "Cartão de Crédito" },
+  { id: "debit_card", name: "Cartão de Débito" },
+  { id: "pix", name: "PIX" },
+];
 
 const CashierManagement: React.FC = () => {
   const { user } = useAuth();
+  const { orders } = useOrders();
   const { 
     cashierOperations,
     registerCashierInflow,
@@ -80,6 +102,46 @@ const CashierManagement: React.FC = () => {
   
   const [initialAmount, setInitialAmount] = useState("");
   const [closingNotes, setClosingNotes] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  
+  // Payment reconciliation
+  const [reconciliation, setReconciliation] = useState<{
+    cash: string;
+    credit_card: string;
+    debit_card: string;
+    pix: string;
+  }>({
+    cash: "",
+    credit_card: "",
+    debit_card: "",
+    pix: "",
+  });
+  
+  // Calculate expected amounts based on completed orders for the day
+  const calculateExpectedAmounts = () => {
+    if (!currentCashier) return { total: 0, byMethod: {} };
+    
+    // Filter orders that were created after the cashier was opened
+    const cashierOpenTime = new Date(currentCashier.openedAt).getTime();
+    const relevantOrders = orders.filter(order => 
+      order.status === "completed" && 
+      new Date(order.createdAt).getTime() >= cashierOpenTime
+    );
+    
+    // Calculate totals by payment method
+    const byMethod = relevantOrders.reduce((acc, order) => {
+      const method = order.paymentMethod || "cash";
+      acc[method] = (acc[method] || 0) + order.total;
+      return acc;
+    }, {} as Record<string, number>);
+    
+    // Total of all orders
+    const total = relevantOrders.reduce((sum, order) => sum + order.total, 0);
+    
+    return { total, byMethod };
+  };
+  
+  const expectedAmounts = calculateExpectedAmounts();
   
   const handleOpenCashier = () => {
     if (!initialAmount || parseFloat(initialAmount) <= 0) {
@@ -93,7 +155,7 @@ const CashierManagement: React.FC = () => {
     }
     
     try {
-      openCashier(user.id, user.name || user.email, parseFloat(initialAmount));
+      openCashier(user.id, user.name || user.username, parseFloat(initialAmount));
       setOpenCashierDialog(false);
       setInitialAmount("");
     } catch (error) {
@@ -101,16 +163,37 @@ const CashierManagement: React.FC = () => {
     }
   };
   
-  const handleCloseCashier = () => {
+  const handleCloseCashier = async () => {
     if (!user) {
       toast.error("Usuário não autenticado.");
       return;
     }
     
+    // Convert reconciliation values to numbers
+    const reconciliationData = Object.entries(reconciliation).map(([method, amount]) => ({
+      method,
+      amount: amount ? parseFloat(amount) : 0
+    })).filter(item => item.amount > 0);
+    
     try {
-      closeCashier(user.id, user.name || user.email);
-      setCloseCashierDialog(false);
-      setClosingNotes("");
+      const success = await closeCashier(
+        user.id, 
+        user.name || user.username, 
+        reconciliationData,
+        adminPassword || undefined
+      );
+      
+      if (success) {
+        setCloseCashierDialog(false);
+        setClosingNotes("");
+        setAdminPassword("");
+        setReconciliation({
+          cash: "",
+          credit_card: "",
+          debit_card: "",
+          pix: "",
+        });
+      }
     } catch (error) {
       toast.error("Erro ao fechar o caixa.");
     }
@@ -377,11 +460,11 @@ const CashierManagement: React.FC = () => {
       
       {/* Diálogo para Fechamento de Caixa */}
       <Dialog open={closeCashierDialog} onOpenChange={setCloseCashierDialog}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Fechar Caixa</DialogTitle>
             <DialogDescription>
-              Confirme o fechamento do caixa atual.
+              Confirme os valores por forma de pagamento e o fechamento do caixa atual.
             </DialogDescription>
           </DialogHeader>
           
@@ -391,6 +474,52 @@ const CashierManagement: React.FC = () => {
               <div className="text-lg font-semibold">
                 R$ {currentCashier?.currentBalance.toFixed(2) || '0.00'}
               </div>
+            </div>
+            
+            <div className="space-y-4">
+              <h3 className="text-sm font-medium">Valores por Forma de Pagamento</h3>
+              
+              <div className="grid grid-cols-1 gap-4">
+                {PaymentMethods.map((method) => {
+                  const expectedAmount = expectedAmounts.byMethod[method.id] || 0;
+                  
+                  return (
+                    <div key={method.id} className="space-y-2">
+                      <div className="flex justify-between">
+                        <Label htmlFor={`payment-${method.id}`}>{method.name}</Label>
+                        {expectedAmount > 0 && (
+                          <span className="text-sm text-muted-foreground">
+                            Esperado: R$ {expectedAmount.toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+                      <Input
+                        id={`payment-${method.id}`}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={reconciliation[method.id as keyof typeof reconciliation]}
+                        onChange={(e) => setReconciliation({
+                          ...reconciliation,
+                          [method.id]: e.target.value
+                        })}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="admin-password">Senha de Administrador</Label>
+              <Input
+                id="admin-password"
+                type="password"
+                placeholder="Digite a senha de administrador"
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+              />
             </div>
             
             <div className="space-y-2">
