@@ -2,6 +2,9 @@ import React, { createContext, useContext, useState } from "react";
 import { Product, useProducts } from "./ProductContext";
 import { useCashier } from "./CashierContext";
 import { toast } from "sonner";
+import { v4 as uuidv4 } from "uuid";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "./AuthContext";
 
 // Tipos
 export interface OrderFormItem {
@@ -94,7 +97,8 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
   const [currentOrder, setCurrentOrder] = useState<OrderFormItem[]>([]);
   const { updateStock } = useProducts();
-  const { cashState, addCashInput } = useCashier();
+  const { cashState, addCashInput, registerCashierInflow } = useCashier();
+  const { user } = useAuth();
 
   const addItem = (product: Product, quantity: number, notes?: string) => {
     const existingItemIndex = currentOrder.findIndex(
@@ -196,6 +200,16 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       `Pedido #${newOrder.id} - ${paymentMethod}`
     );
 
+    // Também registra como uma operação de venda para melhor rastreamento
+    registerCashierInflow(
+      total,
+      `Venda #${newOrder.id} - ${paymentMethod}`,
+      "sale" // Categoria específica para vendas
+    );
+    
+    // Salvar pedido no Supabase
+    saveOrderToSupabase(newOrder);
+
     // Notifica a cozinha de um novo pedido
     toast.info("Novo pedido enviado para a cozinha!");
     
@@ -203,6 +217,60 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     clearOrder();
 
     return true;
+  };
+  
+  // Função para salvar o pedido no Supabase
+  const saveOrderToSupabase = async (order: Order) => {
+    if (!user) return;
+    
+    try {
+      // Salvar o pedido primeiro
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .insert({
+          id: order.id,
+          user_id: order.userId,
+          username: order.userName,
+          status: order.status,
+          total: order.total,
+          payment_method: order.paymentMethod
+        })
+        .select();
+      
+      if (orderError) throw orderError;
+      
+      // Salvar itens do pedido
+      for (const item of order.items) {
+        const { error: itemError } = await supabase
+          .from('order_items')
+          .insert({
+            order_id: order.id,
+            product_id: item.productId,
+            product_name: item.productName,
+            quantity: item.quantity,
+            unit_price: item.unitPrice,
+            notes: item.notes
+          });
+        
+        if (itemError) throw itemError;
+      }
+      
+      // Registrar operação de caixa para esta venda
+      const { error: cashierOpError } = await supabase
+        .from('cashier_operations')
+        .insert({
+          user_id: order.userId,
+          username: order.userName,
+          type: 'sale',
+          amount: order.total,
+          description: `Venda #${order.id} - ${order.paymentMethod}`
+        });
+      
+      if (cashierOpError) throw cashierOpError;
+      
+    } catch (error) {
+      console.error("Error saving order to Supabase:", error);
+    }
   };
 
   const cancelOrder = (orderId: string) => {
