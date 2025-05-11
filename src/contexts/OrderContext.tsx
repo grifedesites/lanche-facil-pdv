@@ -326,8 +326,7 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
     fetchOrders();
   }, []);
 
-  // Aqui está o problema principal: em vez de retornar o objeto do contexto diretamente,
-  // precisamos retornar o Provider com o children
+  // Agora o Provider retorna o componente corretamente
   return (
     <OrderContext.Provider 
       value={{

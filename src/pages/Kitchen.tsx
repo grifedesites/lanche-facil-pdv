@@ -35,7 +35,6 @@ const Kitchen: React.FC = () => {
   }, [orders]);
 
   const handleStatusUpdate = (orderId: string, status: string) => {
-    // Verificar se a função existe antes de chamá-la
     if (updateOrderStatus) {
       updateOrderStatus(orderId, status);
     }
