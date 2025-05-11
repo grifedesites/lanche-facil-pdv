@@ -1,7 +1,8 @@
+
 import React, { createContext, useContext, useState } from "react";
 import { toast } from "sonner";
 import { v4 as uuidv4 } from "uuid";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, type SettingsRow, type CashierReconciliationRow } from "@/integrations/supabase/client";
 
 // Types
 export interface CashFlow {
@@ -162,16 +163,17 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (password) {
       // Check admin closing password in Supabase settings table
       try {
-        const { data: settings, error } = await supabase
+        // Use raw query with known response type to avoid type issues
+        const { data, error } = await supabase
           .from('settings')
-          .select('value')
+          .select('*')
           .eq('key', 'admin_closing_password')
-          .single();
+          .single<SettingsRow>();
         
         if (error) throw error;
         
         // If password doesn't match, block closing
-        if (!settings || settings.value !== password) {
+        if (!data || data.value !== password) {
           toast.error("Senha de fechamento incorreta!");
           return false;
         }
@@ -258,12 +260,30 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // If reconciliation data is provided, save it
         if (reconciliation && reconciliation.length > 0) {
           for (const payment of reconciliation) {
-            await supabase.from('cashier_reconciliation').insert({
-              cashier_id: cashierId,
-              payment_method: payment.method,
-              reported_amount: payment.amount,
-              user_id: userId
-            });
+            // Use raw query with precise type information
+            const { error: reconcError } = await supabase
+              .rpc('insert_cashier_reconciliation', {
+                p_cashier_id: cashierId, 
+                p_payment_method: payment.method,
+                p_reported_amount: payment.amount,
+                p_user_id: userId
+              });
+              
+            if (reconcError) {
+              // Fallback to direct insert if RPC fails
+              console.warn('Using fallback method for reconciliation insert');
+              
+              // Using any type to bypass type checking for this operation
+              const { error: fallbackError } = await supabase.from('cashier_reconciliation' as any)
+                .insert({
+                  cashier_id: cashierId,
+                  payment_method: payment.method,
+                  reported_amount: payment.amount,
+                  user_id: userId
+                } as any);
+                
+              if (fallbackError) throw fallbackError;
+            }
           }
         }
       }

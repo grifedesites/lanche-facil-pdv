@@ -42,6 +42,33 @@ export type Database = {
         }
         Relationships: []
       }
+      cashier_reconciliation: {
+        Row: {
+          cashier_id: string
+          created_at: string | null
+          id: string
+          payment_method: string
+          reported_amount: number
+          user_id: string
+        }
+        Insert: {
+          cashier_id: string
+          created_at?: string | null
+          id?: string
+          payment_method: string
+          reported_amount: number
+          user_id: string
+        }
+        Update: {
+          cashier_id?: string
+          created_at?: string | null
+          id?: string
+          payment_method?: string
+          reported_amount?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       cashiers: {
         Row: {
           closed_at: string | null
@@ -267,6 +294,33 @@ export type Database = {
           name?: string
           role?: string | null
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      settings: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          key: string
+          updated_at: string | null
+          value: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          key: string
+          updated_at?: string | null
+          value: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          key?: string
+          updated_at?: string | null
+          value?: string
         }
         Relationships: []
       }

@@ -15,3 +15,22 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     autoRefreshToken: true
   }
 });
+
+// This is a temporary type extension until the Supabase types are updated
+export type SettingsRow = {
+  id: string;
+  key: string;
+  value: string;
+  description: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export type CashierReconciliationRow = {
+  id: string;
+  cashier_id: string;
+  payment_method: string;
+  reported_amount: number;
+  user_id: string;
+  created_at: string | null;
+}

@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState } from "react";
 import { Product, useProducts } from "./ProductContext";
 import { useCashier } from "./CashierContext";
@@ -6,7 +7,7 @@ import { v4 as uuidv4 } from "uuid";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./AuthContext";
 
-// Tipos
+// Types
 export interface OrderFormItem {
   productId: string;
   productName: string;
@@ -192,7 +193,7 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Adiciona o pedido à lista
     setOrders([...orders, newOrder]);
 
-    // Registra a entrada no caixa
+    // Registra a entrada no caixa usando os três parâmetros esperados
     addCashInput(
       userId,
       userName,
