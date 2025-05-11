@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { useOrders } from '@/contexts/OrderContext';
 import AppShell from '@/components/Layout/AppShell';
@@ -62,7 +63,6 @@ const Kitchen: React.FC = () => {
   };
 
   return (
-    
     <AppShell>
       <div className="container mx-auto py-6">
         <div className="flex justify-between items-center mb-6">
@@ -142,7 +142,6 @@ const Kitchen: React.FC = () => {
         </div>
       </div>
     </AppShell>
-    
   );
 };
 
