@@ -1,179 +1,191 @@
 
-import React, { useState } from "react";
-import AppShell from "@/components/Layout/AppShell";
-import { useOrders, Order, OrderStatus } from "@/contexts/OrderContext";
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ChefHat, Clock, Check, Package, Utensils } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import React, { useState, useEffect } from 'react';
+import AppShell from '@/components/Layout/AppShell';
+import { useOrders, Order, OrderStatus } from '@/contexts/OrderContext';
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle
+} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { toast } from 'sonner';
 
 const Kitchen: React.FC = () => {
-  const { orders, markOrderAsReady } = useOrders();
-  const [activeTab, setActiveTab] = useState<OrderStatus>("preparing");
+  const { orders, updateOrderStatus } = useOrders();
+  const [selectedTab, setSelectedTab] = useState<string>("pending");
 
-  // Filtra os pedidos com base na tab ativa
-  const filteredOrders = orders.filter(order => order.status === activeTab);
+  const pendingOrders = orders.filter(order => order.status === 'pending');
+  const preparingOrders = orders.filter(order => order.status === 'preparing');
+  const readyOrders = orders.filter(order => order.status === 'ready');
+  const completedOrders = orders.filter(order => order.status === 'completed');
+  const cancelledOrders = orders.filter(order => order.status === 'cancelled');
 
-  // Calcula o tempo decorrido desde a criação do pedido
-  const getElapsedTime = (createdAt: string) => {
-    return formatDistanceToNow(new Date(createdAt), { 
-      addSuffix: true, 
-      locale: ptBR 
-    });
+  const handleStartPreparing = (orderId: string) => {
+    updateOrderStatus(orderId, 'preparing');
+    toast.success('Pedido em preparo');
   };
 
-  // Retorna a cor do card baseada no status do pedido
-  const getCardStyle = (order: Order) => {
-    switch (order.status) {
-      case "preparing":
-        return "border-l-4 border-l-yellow-500";
-      case "completed":
-        return "border-l-4 border-l-green-500";
-      case "cancelled":
-        return "border-l-4 border-l-red-500";
-      default:
-        return "";
-    }
+  const handleMarkAsReady = (orderId: string) => {
+    updateOrderStatus(orderId, 'ready');
+    toast.success('Pedido pronto para entrega');
   };
 
-  // Retorna o ícone e cor baseado no status do pedido
+  const handleCompleteOrder = (orderId: string) => {
+    updateOrderStatus(orderId, 'completed');
+    toast.success('Pedido concluído');
+  };
+
+  const handleCancelOrder = (orderId: string) => {
+    updateOrderStatus(orderId, 'cancelled');
+    toast.error('Pedido cancelado');
+  };
+
+  const formatDateTime = (date: Date) => {
+    return format(new Date(date), "dd/MM/yyyy HH:mm", { locale: ptBR });
+  };
+
   const getStatusBadge = (status: OrderStatus) => {
     switch (status) {
-      case "preparing":
-        return { 
-          color: "bg-yellow-100 text-yellow-800 hover:bg-yellow-200", 
-          icon: <Utensils className="h-4 w-4 mr-1" />,
-          label: "Em preparo"
-        };
-      case "completed":
-        return { 
-          color: "bg-green-100 text-green-800 hover:bg-green-200", 
-          icon: <Check className="h-4 w-4 mr-1" />,
-          label: "Concluído"
-        };
-      case "cancelled":
-        return { 
-          color: "bg-red-100 text-red-800 hover:bg-red-200", 
-          icon: null,
-          label: "Cancelado"
-        };
-      case "pending":
-        return { 
-          color: "bg-blue-100 text-blue-800 hover:bg-blue-200", 
-          icon: <Clock className="h-4 w-4 mr-1" />,
-          label: "Pendente"
-        };
+      case 'pending':
+        return <Badge variant="outline">Pendente</Badge>;
+      case 'preparing':
+        return <Badge variant="secondary">Em Preparo</Badge>;
+      case 'ready':
+        return <Badge variant="default">Pronto</Badge>;
+      case 'completed':
+        return <Badge variant="success">Concluído</Badge>;
+      case 'cancelled':
+        return <Badge variant="destructive">Cancelado</Badge>;
+      default:
+        return <Badge variant="outline">Desconhecido</Badge>;
     }
+  };
+
+  const renderOrderCard = (order: Order) => {
+    return (
+      <Card key={order.id} className="mb-4">
+        <CardHeader>
+          <div className="flex justify-between items-center">
+            <CardTitle>Pedido #{order.id.substring(0, 8)}</CardTitle>
+            {getStatusBadge(order.status)}
+          </div>
+          <div className="text-sm text-muted-foreground">
+            Criado: {formatDateTime(new Date(order.createdAt))} por {order.createdByName}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {order.items.map((item, index) => (
+              <div key={index} className="flex justify-between">
+                <div>
+                  <span className="font-medium">{item.quantity}x</span> {item.productName}
+                  {item.notes && <div className="text-xs italic text-muted-foreground">{item.notes}</div>}
+                </div>
+                <div>
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+                    item.unitPrice * item.quantity
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 pt-2 border-t border-border">
+            <div className="flex justify-between font-semibold">
+              <span>Total:</span>
+              <span>
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+                  order.total
+                )}
+              </span>
+            </div>
+            <div className="text-sm text-muted-foreground">
+              Pagamento: {order.paymentMethod === 'dinheiro' ? 'Dinheiro' : 
+                      order.paymentMethod === 'cartao_credito' ? 'Cartão de Crédito' : 
+                      order.paymentMethod === 'cartao_debito' ? 'Cartão de Débito' : 
+                      order.paymentMethod === 'pix' ? 'PIX' : order.paymentMethod}
+            </div>
+          </div>
+        </CardContent>
+        <CardFooter className="flex justify-end gap-2">
+          {order.status === 'pending' && (
+            <>
+              <Button variant="outline" size="sm" onClick={() => handleCancelOrder(order.id)}>
+                Cancelar
+              </Button>
+              <Button size="sm" onClick={() => handleStartPreparing(order.id)}>
+                Iniciar Preparo
+              </Button>
+            </>
+          )}
+          {order.status === 'preparing' && (
+            <>
+              <Button variant="outline" size="sm" onClick={() => handleCancelOrder(order.id)}>
+                Cancelar
+              </Button>
+              <Button size="sm" onClick={() => handleMarkAsReady(order.id)}>
+                Pronto para Entrega
+              </Button>
+            </>
+          )}
+          {order.status === 'ready' && (
+            <Button size="sm" onClick={() => handleCompleteOrder(order.id)}>
+              Concluir Pedido
+            </Button>
+          )}
+          {order.status === 'completed' && order.completedAt && (
+            <div className="text-sm text-muted-foreground">
+              Concluído em: {formatDateTime(new Date(order.completedAt))}
+            </div>
+          )}
+        </CardFooter>
+      </Card>
+    );
   };
 
   return (
     <AppShell>
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold">Cozinha</h1>
-            <p className="text-muted-foreground">Gerencie os pedidos em preparo</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <ChefHat size={24} className="text-primary" />
-            <span className="font-semibold text-xl">Painel de Pedidos</span>
-          </div>
-        </div>
+      <div className="container mx-auto py-4">
+        <h1 className="text-2xl font-bold mb-6">Cozinha - Gerenciamento de Pedidos</h1>
 
-        <Tabs 
-          defaultValue="preparing" 
-          className="w-full" 
-          value={activeTab}
-          onValueChange={(value) => setActiveTab(value as OrderStatus)}
-        >
-          <TabsList className="grid grid-cols-3 w-full max-w-md mb-4">
-            <TabsTrigger value="preparing" className="flex items-center gap-1">
-              <Utensils className="h-4 w-4" /> Em Preparo
-            </TabsTrigger>
-            <TabsTrigger value="completed" className="flex items-center gap-1">
-              <Check className="h-4 w-4" /> Prontos
-            </TabsTrigger>
-            <TabsTrigger value="cancelled" className="flex items-center gap-1">
-              Cancelados
-            </TabsTrigger>
+        <Tabs value={selectedTab} onValueChange={setSelectedTab} className="w-full">
+          <TabsList className="grid grid-cols-5 mb-4">
+            <TabsTrigger value="pending">Pendentes <Badge variant="outline" className="ml-2">{pendingOrders.length}</Badge></TabsTrigger>
+            <TabsTrigger value="preparing">Em Preparo <Badge variant="outline" className="ml-2">{preparingOrders.length}</Badge></TabsTrigger>
+            <TabsTrigger value="ready">Prontos <Badge variant="outline" className="ml-2">{readyOrders.length}</Badge></TabsTrigger>
+            <TabsTrigger value="completed">Concluídos</TabsTrigger>
+            <TabsTrigger value="cancelled">Cancelados</TabsTrigger>
           </TabsList>
 
-          {["preparing", "completed", "cancelled"].map((status) => (
-            <TabsContent key={status} value={status} className="mt-0">
-              {filteredOrders.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12">
-                  <Package className="h-12 w-12 text-muted-foreground mb-4" />
-                  <p className="text-lg text-muted-foreground">
-                    Nenhum pedido {status === "preparing" ? "em preparo" : 
-                                 status === "completed" ? "concluído" : "cancelado"} no momento
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredOrders.map((order) => (
-                    <Card 
-                      key={order.id} 
-                      className={`${getCardStyle(order)} transition-all hover:shadow-md`}
-                    >
-                      <CardHeader className="pb-2">
-                        <div className="flex justify-between items-center">
-                          <CardTitle>Pedido #{order.id}</CardTitle>
-                          <Badge 
-                            variant="outline" 
-                            className={getStatusBadge(order.status).color}
-                          >
-                            {getStatusBadge(order.status).icon}
-                            {getStatusBadge(order.status).label}
-                          </Badge>
-                        </div>
-                        <div className="text-sm text-muted-foreground flex items-center gap-1">
-                          <Clock className="h-3 w-3" /> {getElapsedTime(order.createdAt)}
-                        </div>
-                      </CardHeader>
+          <TabsContent value="pending" className="space-y-4">
+            {pendingOrders.length === 0 && <p className="text-center py-8 text-muted-foreground">Nenhum pedido pendente.</p>}
+            {pendingOrders.map(renderOrderCard)}
+          </TabsContent>
 
-                      <CardContent>
-                        <ul className="divide-y">
-                          {order.items.map((item, idx) => (
-                            <li key={idx} className="py-2 flex justify-between">
-                              <span className="font-medium">
-                                {item.quantity}x {item.productName}
-                              </span>
-                              {item.notes && (
-                                <span className="text-sm italic text-muted-foreground ml-2">
-                                  {item.notes}
-                                </span>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </CardContent>
+          <TabsContent value="preparing" className="space-y-4">
+            {preparingOrders.length === 0 && <p className="text-center py-8 text-muted-foreground">Nenhum pedido em preparo.</p>}
+            {preparingOrders.map(renderOrderCard)}
+          </TabsContent>
 
-                      <CardFooter>
-                        {order.status === "preparing" && (
-                          <Button 
-                            className="w-full" 
-                            onClick={() => markOrderAsReady(order.id)}
-                          >
-                            <Check className="h-4 w-4 mr-2" /> Marcar como Pronto
-                          </Button>
-                        )}
-                        {order.status === "completed" && (
-                          <div className="w-full text-sm text-center text-muted-foreground">
-                            Concluído {order.completedAt && formatDistanceToNow(new Date(order.completedAt), { 
-                              addSuffix: true, locale: ptBR 
-                            })}
-                          </div>
-                        )}
-                      </CardFooter>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
-          ))}
+          <TabsContent value="ready" className="space-y-4">
+            {readyOrders.length === 0 && <p className="text-center py-8 text-muted-foreground">Nenhum pedido pronto para entrega.</p>}
+            {readyOrders.map(renderOrderCard)}
+          </TabsContent>
+
+          <TabsContent value="completed" className="space-y-4">
+            {completedOrders.length === 0 && <p className="text-center py-8 text-muted-foreground">Nenhum pedido concluído.</p>}
+            {completedOrders.map(renderOrderCard)}
+          </TabsContent>
+
+          <TabsContent value="cancelled" className="space-y-4">
+            {cancelledOrders.length === 0 && <p className="text-center py-8 text-muted-foreground">Nenhum pedido cancelado.</p>}
+            {cancelledOrders.map(renderOrderCard)}
+          </TabsContent>
         </Tabs>
       </div>
     </AppShell>

@@ -1,12 +1,12 @@
-import React, { createContext, useContext, useState } from "react";
-import { toast } from "sonner";
-import { v4 as uuidv4 } from "uuid";
-import { useCashier } from "@/contexts/CashierContext";
-import { useProducts } from "@/contexts/ProductContext";
-import { supabase } from "@/integrations/supabase/client";
 
-// Types
-export type OrderStatus = "pending" | "processing" | "completed" | "canceled";
+// Importações necessárias
+import React, { createContext, useContext, useState } from 'react';
+import { v4 as uuidv4 } from 'uuid';
+import { Product } from './ProductContext';
+import { toast } from 'sonner';
+
+// Definição de tipos
+export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'completed' | 'cancelled';
 
 export interface OrderFormItem {
   productId: string;
@@ -19,25 +19,25 @@ export interface OrderFormItem {
 export interface Order {
   id: string;
   items: OrderFormItem[];
-  total: number;
   status: OrderStatus;
-  createdAt: string;
-  updatedAt: string;
-  userId: string;
-  userName: string;
-  paymentMethod?: string;
+  total: number;
+  createdAt: Date;
+  createdBy: string;
+  createdByName: string;
+  paymentMethod: string;
+  completedAt?: Date;
 }
 
 interface OrderContextType {
   orders: Order[];
   currentOrder: OrderFormItem[];
-  addItem: (product: { id: string; name: string; price: number }, quantity: number) => void;
+  addItem: (product: Product, quantity: number) => void;
   updateItem: (index: number, quantity: number, notes?: string) => void;
   removeItem: (index: number) => void;
   clearOrder: () => void;
   completeOrder: (userId: string, userName: string, paymentMethod: string) => boolean;
-  getOrdersByDateRange: (startDate: Date, endDate: Date) => Order[];
-  getOrdersTotal: (filteredOrders?: Order[]) => number;
+  updateOrderStatus: (orderId: string, status: OrderStatus) => void;
+  getFilteredOrders: (status?: OrderStatus) => Order[];
 }
 
 const OrderContext = createContext<OrderContextType | undefined>(undefined);
@@ -45,69 +45,47 @@ const OrderContext = createContext<OrderContextType | undefined>(undefined);
 export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [currentOrder, setCurrentOrder] = useState<OrderFormItem[]>([]);
-  const { cashierOpen, registerCashierInflow } = useCashier();
-  const { updateStock } = useProducts();
 
-  // Add item to the current order
-  const addItem = (product: { id: string; name: string; price: number }, quantity: number) => {
-    const existingItemIndex = currentOrder.findIndex((item) => item.productId === product.id);
-
-    if (existingItemIndex !== -1) {
-      // If item already exists, update its quantity
-      const updatedItems = [...currentOrder];
-      updatedItems[existingItemIndex].quantity += quantity;
-      setCurrentOrder(updatedItems);
-    } else {
-      // Otherwise, add a new item
-      const newItem: OrderFormItem = {
-        productId: product.id,
-        productName: product.name,
-        quantity,
-        unitPrice: product.price,
-      };
-      setCurrentOrder([...currentOrder, newItem]);
-    }
-  };
-
-  // Update item in the current order
-  const updateItem = (index: number, quantity: number, notes?: string) => {
-    if (index < 0 || index >= currentOrder.length) return;
-
-    const updatedItems = [...currentOrder];
-    updatedItems[index] = {
-      ...updatedItems[index],
-      quantity,
-      notes
+  const addItem = (product: Product, quantity: number) => {
+    const newItem: OrderFormItem = {
+      productId: product.id,
+      productName: product.name,
+      quantity: quantity,
+      unitPrice: product.price
     };
-    setCurrentOrder(updatedItems);
+
+    setCurrentOrder([...currentOrder, newItem]);
+    toast.success(`${product.name} adicionado ao pedido`);
   };
 
-  // Remove item from the current order
+  const updateItem = (index: number, quantity: number, notes?: string) => {
+    const updatedOrder = [...currentOrder];
+    updatedOrder[index] = {
+      ...updatedOrder[index],
+      quantity: quantity,
+      notes: notes
+    };
+    setCurrentOrder(updatedOrder);
+  };
+
   const removeItem = (index: number) => {
-    if (index < 0 || index >= currentOrder.length) return;
-    
-    const updatedItems = currentOrder.filter((_, idx) => idx !== index);
-    setCurrentOrder(updatedItems);
+    const updatedOrder = currentOrder.filter((_, i) => i !== index);
+    setCurrentOrder(updatedOrder);
+    toast.info("Item removido do pedido");
   };
 
-  // Clear the current order
   const clearOrder = () => {
     setCurrentOrder([]);
+    toast.info("Pedido limpo");
   };
 
-  // Complete the current order
   const completeOrder = (userId: string, userName: string, paymentMethod: string): boolean => {
-    if (!cashierOpen) {
-      toast.error("O caixa precisa estar aberto para finalizar pedidos!");
-      return false;
-    }
-
     if (currentOrder.length === 0) {
-      toast.error("Adicione produtos ao pedido antes de finalizar!");
+      toast.error("Não é possível completar um pedido vazio");
       return false;
     }
 
-    const orderTotal = currentOrder.reduce(
+    const total = currentOrder.reduce(
       (sum, item) => sum + item.quantity * item.unitPrice,
       0
     );
@@ -115,111 +93,65 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const newOrder: Order = {
       id: uuidv4(),
       items: [...currentOrder],
-      total: orderTotal,
-      status: "completed",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      userId,
-      userName,
-      paymentMethod
+      status: 'pending',
+      total: total,
+      createdAt: new Date(),
+      createdBy: userId,
+      createdByName: userName,
+      paymentMethod: paymentMethod
     };
 
     setOrders([...orders, newOrder]);
-    
-    // Register the sale in the cashier
-    registerCashierInflow(orderTotal, `Venda #${newOrder.id.slice(0, 8)}`, "sale");
-    
-    // Update stock for each product
-    currentOrder.forEach(item => {
-      updateStock(item.productId, -item.quantity);
-    });
-    
-    // Save to Supabase
-    saveOrderToSupabase(newOrder);
-    
-    // Clear the current order
-    clearOrder();
-    
+    setCurrentOrder([]);
     return true;
   };
-  
-  // Helper function to save order to Supabase
-  const saveOrderToSupabase = async (order: Order) => {
-    try {
-      // Convert the order to Supabase format
-      const orderData = {
-        id: order.id,
-        total: order.total,
-        status: order.status,
-        user_id: order.userId,
-        username: order.userName,
-        payment_method: order.paymentMethod,
-        created_at: order.createdAt
-      };
-      
-      const { error } = await supabase.from('orders').insert(orderData);
-      
-      if (error) throw error;
-      
-      // Save each order item
-      for (const item of order.items) {
-        const itemData = {
-          order_id: order.id,
-          product_id: item.productId,
-          product_name: item.productName,
-          quantity: item.quantity,
-          unit_price: item.unitPrice,
-          notes: item.notes
-        };
-        
-        const { error: itemError } = await supabase.from('order_items').insert(itemData);
-        
-        if (itemError) {
-          console.error('Error saving order item:', itemError);
+
+  const updateOrderStatus = (orderId: string, status: OrderStatus) => {
+    setOrders(
+      orders.map(order => {
+        if (order.id === orderId) {
+          const updatedOrder = { ...order, status };
+          
+          // Se o status for 'completed', registrar o horário de conclusão
+          if (status === 'completed') {
+            updatedOrder.completedAt = new Date();
+          }
+          
+          return updatedOrder;
         }
-      }
-      
-    } catch (error) {
-      console.error('Error saving order to Supabase:', error);
-      toast.error("Erro ao salvar pedido no banco de dados");
-    }
+        return order;
+      })
+    );
   };
 
-  // Get orders within a date range
-  const getOrdersByDateRange = (startDate: Date, endDate: Date): Order[] => {
-    return orders.filter(order => {
-      const orderDate = new Date(order.createdAt);
-      return orderDate >= startDate && orderDate <= endDate;
-    });
+  const getFilteredOrders = (status?: OrderStatus) => {
+    if (!status) return orders;
+    return orders.filter(order => order.status === status);
   };
 
-  // Calculate total sales from orders
-  const getOrdersTotal = (filteredOrders?: Order[]): number => {
-    const ordersToCalculate = filteredOrders || orders;
-    return ordersToCalculate
-      .filter(order => order.status === "completed")
-      .reduce((total, order) => total + order.total, 0);
-  };
-
-  const value = {
-    orders,
-    currentOrder,
-    addItem,
-    updateItem,
-    removeItem,
-    clearOrder,
-    completeOrder,
-    getOrdersByDateRange,
-    getOrdersTotal
-  };
-
-  return <OrderContext.Provider value={value}>{children}</OrderContext.Provider>;
+  return (
+    <OrderContext.Provider
+      value={{
+        orders,
+        currentOrder,
+        addItem,
+        updateItem,
+        removeItem,
+        clearOrder,
+        completeOrder,
+        updateOrderStatus,
+        getFilteredOrders
+      }}
+    >
+      {children}
+    </OrderContext.Provider>
+  );
 };
 
 export const useOrders = (): OrderContextType => {
   const context = useContext(OrderContext);
   if (context === undefined) {
-    throw new Error("useOrders deve ser usado dentro de um OrderProvider");
+    throw new Error('useOrders deve ser usado dentro de um OrderProvider');
   }
   return context;
 };

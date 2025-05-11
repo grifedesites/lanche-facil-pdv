@@ -91,7 +91,7 @@ const Sidebar = () => {
         <ul>
           {navigation.map((item) => {
             // Verifique se o usuário existe e tem a propriedade isAdmin antes de usá-la
-            const isUserAdmin = user && (user.isAdmin === true);
+            const isUserAdmin = user && (user.role === 'admin');
             if (item.requireAdmin && !isUserAdmin) {
               return null;
             }

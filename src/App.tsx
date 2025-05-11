@@ -22,7 +22,7 @@ function App() {
   useEffect(() => {
     const checkAdminStatus = () => {
       const storedIsAdmin = localStorage.getItem('isAdmin');
-      setIsAdmin(storedIsAdmin === 'true' || (user && user.isAdmin) || false);
+      setIsAdmin(storedIsAdmin === 'true' || (user && user.role === 'admin') || false);
     };
 
     checkAdminStatus();
