@@ -1,3 +1,4 @@
+
 // src/pages/Reports.tsx
 
 import React, { useState, useEffect } from "react";
@@ -8,7 +9,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { DateRange } from "react-day-picker";
 import { Button } from "@/components/ui/button";
-import { CalendarIcon } from "@radix-ui/react-icons";
+import { CalendarIcon } from "lucide-react"; // Alterado para usar lucide-react em vez de @radix-ui/react-icons
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import {
