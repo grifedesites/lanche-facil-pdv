@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState } from "react";
 import { toast } from "sonner";
 import { v4 as uuidv4 } from "uuid";
@@ -284,7 +285,8 @@ export const CashierProvider: React.FC<{ children: React.ReactNode }> = ({ child
                   user_id: userId
                 });
               
-            if (fallbackError) throw fallbackError;
+              if (fallbackError) throw fallbackError;
+            }
           }
         }
       }
