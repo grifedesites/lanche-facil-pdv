@@ -1,3 +1,4 @@
+
 import React, {
   createContext,
   useContext,
@@ -9,6 +10,7 @@ import { v4 as uuidv4 } from "uuid";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { isSameDay, isWithinInterval } from "date-fns";
 
 // Define the types
 export interface OrderItem {
@@ -17,6 +19,7 @@ export interface OrderItem {
   name: string;
   quantity: number;
   price: number;
+  notes?: string;
 }
 
 export interface Order {
@@ -29,7 +32,10 @@ export interface Order {
   updatedAt: string;
   userId: string | null;
   userName: string | null;
+  completedAt?: string;
 }
+
+export type OrderStatus = "pending" | "completed" | "cancelled" | "preparing";
 
 interface OrderContextType {
   orders: Order[];
@@ -43,6 +49,10 @@ interface OrderContextType {
   completeOrder: (orderId: string) => Promise<void>;
   fetchOrders: () => Promise<void>;
   deleteOrder: (orderId: string) => Promise<void>;
+  getOrdersByDate: (date: Date) => Order[];
+  getOrdersByDateRange: (startDate: Date, endDate: Date) => Order[];
+  getOrdersTotal: (orders: Order[]) => number;
+  markOrderAsReady?: (orderId: string) => Promise<void>;
 }
 
 // Create the context
@@ -71,14 +81,15 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
       // Map the Supabase data to the Order type
       const typedOrders: Order[] = data.map((order) => ({
         id: order.id,
-        items: order.items,
+        items: order.items || [],
         total: order.total,
         paymentMethod: order.payment_method,
-        status: order.status,
+        status: order.status as "pending" | "completed" | "cancelled",
         createdAt: order.created_at,
-        updatedAt: order.updated_at,
+        updatedAt: order.completed_at || order.created_at,
         userId: order.user_id,
-        userName: order.user_name,
+        userName: order.username,
+        completedAt: order.completed_at,
       }));
 
       setOrders(typedOrders);
@@ -91,6 +102,26 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
+
+  // Helper functions for Dashboard
+  const getOrdersByDate = (date: Date): Order[] => {
+    return orders.filter(order => 
+      isSameDay(new Date(order.createdAt), date)
+    );
+  };
+
+  const getOrdersByDateRange = (startDate: Date, endDate: Date): Order[] => {
+    return orders.filter(order => {
+      const orderDate = new Date(order.createdAt);
+      return isWithinInterval(orderDate, { start: startDate, end: endDate });
+    });
+  };
+
+  const getOrdersTotal = (ordersToSum: Order[]): number => {
+    return ordersToSum.reduce((sum, order) => 
+      order.status === "completed" ? sum + order.total : sum, 0
+    );
+  };
 
   // Function to add an item to the current order
   const addItemToOrder = (productId: string, name: string, price: number) => {
@@ -212,7 +243,7 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     try {
-      const { data, error } = await supabase.from("orders").insert([
+      const { error } = await supabase.from("orders").insert([
         {
           id: currentOrder.id,
           items: currentOrder.items,
@@ -220,17 +251,24 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
           payment_method: paymentMethod,
           status: "completed",
           created_at: currentOrder.createdAt,
-          updated_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
           user_id: user?.id || null,
-          user_name: user?.name || user?.username || null,
+          username: user?.name || user?.username || null,
         },
-      ]).select();
+      ]);
 
       if (error) {
         throw error;
       }
 
-      setOrders([...orders, { ...currentOrder, paymentMethod, status: "completed" }]);
+      const newOrder: Order = {
+        ...currentOrder,
+        paymentMethod,
+        status: "completed",
+        completedAt: new Date().toISOString(),
+      };
+      
+      setOrders([newOrder, ...orders]);
       setCurrentOrder(null);
       toast.success("Pedido criado com sucesso!");
       await fetchOrders(); // Refresh orders after creating a new one
@@ -253,7 +291,7 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       const updatedOrders = orders.map((order) =>
-        order.id === orderId ? { ...order, status: "cancelled" } : order
+        order.id === orderId ? { ...order, status: "cancelled" as const } : order
       );
       setOrders(updatedOrders);
       toast.success("Pedido cancelado com sucesso!");
@@ -276,7 +314,7 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       const updatedOrders = orders.map((order) =>
-        order.id === orderId ? { ...order, status: "completed" } : order
+        order.id === orderId ? { ...order, status: "completed" as const } : order
       );
       setOrders(updatedOrders);
       toast.success("Pedido concluído com sucesso!");
@@ -317,6 +355,9 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
     completeOrder,
     fetchOrders,
     deleteOrder,
+    getOrdersByDate,
+    getOrdersByDateRange,
+    getOrdersTotal,
   };
 
   return (
