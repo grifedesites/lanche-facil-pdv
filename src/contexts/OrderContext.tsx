@@ -149,19 +149,35 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // Convert the order to Supabase format
       const orderData = {
         id: order.id,
-        items: order.items,
         total: order.total,
         status: order.status,
         user_id: order.userId,
-        user_name: order.userName,
+        username: order.userName,
         payment_method: order.paymentMethod,
-        created_at: order.createdAt,
-        updated_at: order.updatedAt
+        created_at: order.createdAt
       };
       
       const { error } = await supabase.from('orders').insert(orderData);
       
       if (error) throw error;
+      
+      // Save each order item
+      for (const item of order.items) {
+        const itemData = {
+          order_id: order.id,
+          product_id: item.productId,
+          product_name: item.productName,
+          quantity: item.quantity,
+          unit_price: item.unitPrice,
+          notes: item.notes
+        };
+        
+        const { error: itemError } = await supabase.from('order_items').insert(itemData);
+        
+        if (itemError) {
+          console.error('Error saving order item:', itemError);
+        }
+      }
       
     } catch (error) {
       console.error('Error saving order to Supabase:', error);
