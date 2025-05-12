@@ -1,20 +1,61 @@
 
-import React, { useState, FormEvent } from "react";
+import React, { useState, FormEvent, useEffect } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { LogIn } from "lucide-react";
+import { LogIn, Loader } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
   
-  const { login, isAuthenticated, isAdmin } = useAuth();
+  const { login, isAuthenticated, isAdmin, session } = useAuth();
   const navigate = useNavigate();
+
+  // Verificar autenticação existente
+  useEffect(() => {
+    const checkExistingAuth = async () => {
+      try {
+        // Verificar se há uma sessão ativa no Supabase
+        const { data: { session: supabaseSession }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error("Erro ao verificar sessão do Supabase:", error);
+        }
+        
+        // Log para debug
+        console.log("Verificação de sessão inicial:", { 
+          supabaseSession: !!supabaseSession,
+          isAuthenticated,
+          localUser: localStorage.getItem("pdv-user") 
+        });
+      } catch (error) {
+        console.error("Erro ao verificar autenticação:", error);
+      } finally {
+        setCheckingAuth(false);
+      }
+    };
+    
+    checkExistingAuth();
+  }, [isAuthenticated]);
+
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center gap-2">
+          <Loader className="h-8 w-8 animate-spin text-primary" />
+          <span className="text-sm text-muted-foreground">Verificando autenticação...</span>
+        </div>
+      </div>
+    );
+  }
 
   if (isAuthenticated) {
     return <Navigate to={isAdmin ? "/dashboard" : "/pos"} />;
@@ -29,6 +70,9 @@ const Login: React.FC = () => {
       if (success) {
         navigate(isAdmin ? "/dashboard" : "/pos");
       }
+    } catch (error) {
+      console.error("Erro durante login:", error);
+      toast.error("Erro ao processar login. Tente novamente.");
     } finally {
       setIsLoading(false);
     }

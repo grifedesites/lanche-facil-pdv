@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { format } from "date-fns";
-import { CalendarIcon, DollarSign, TrendingUp, TrendingDown } from "lucide-react";
+import { CalendarIcon, DollarSign, TrendingUp, TrendingDown, RefreshCcw } from "lucide-react";
 import AppShell from "@/components/Layout/AppShell";
 import { useCashier } from "@/contexts/CashierContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -50,6 +50,16 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 // Payment method types for reconciliation
 const PaymentMethods = [
@@ -60,7 +70,7 @@ const PaymentMethods = [
 ];
 
 const CashierManagement: React.FC = () => {
-  const { user } = useAuth();
+  const { user, session, refreshSession } = useAuth();
   const { orders } = useOrders();
   const { 
     cashierOperations,
@@ -77,8 +87,9 @@ const CashierManagement: React.FC = () => {
   const [outflowDialogOpen, setOutflowDialogOpen] = useState(false);
   const [openCashierDialog, setOpenCashierDialog] = useState(false);
   const [closeCashierDialog, setCloseCashierDialog] = useState(false);
-  const [supabaseSession, setSupabaseSession] = useState<any>(null);
+  const [authErrorOpen, setAuthErrorOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   const [inflow, setInflow] = useState({
     amount: "",
@@ -139,67 +150,44 @@ const CashierManagement: React.FC = () => {
     const checkAuth = async () => {
       setIsLoading(true);
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        const { data: { session: currentSession }, error } = await supabase.auth.getSession();
         
         if (error) {
           console.error("Erro ao verificar sessão:", error.message);
+          setAuthErrorOpen(true);
           return;
         }
         
-        setSupabaseSession(session);
-        
-        // Se não tiver sessão mas tiver usuário local, tentar autenticar
-        if (!session && user) {
-          console.log("Tentando autenticar com Supabase");
-          
-          // Tentar criar um usuário anônimo
-          try {
-            const { data, error } = await supabase.auth.signUp({
-              email: `${user.username}_${Date.now()}@anonymous.com`,
-              password: `anon_${uuidv4().substring(0, 8)}`,
-              options: {
-                data: {
-                  name: user.name,
-                  role: user.role
-                }
-              }
-            });
-            
-            if (error) {
-              throw error;
-            }
-            
-            setSupabaseSession(data.session);
-          } catch (signUpError) {
-            console.error("Erro ao criar usuário:", signUpError);
-            
-            // Como alternativa, tentar login
-            try {
-              const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-                email: `${user.username}@example.com`,
-                password: "senha123", // Senha padrão para teste
-              });
-              
-              if (signInError) {
-                throw signInError;
-              }
-              
-              setSupabaseSession(signInData.session);
-            } catch (signInErr) {
-              console.error("Erro ao fazer login:", signInErr);
-              toast.error("Não foi possível autenticar com o servidor. Algumas funcionalidades podem estar limitadas.");
-            }
-          }
+        // Se não tiver sessão mas tiver usuário local, tentar atualizar sessão
+        if (!currentSession && user) {
+          console.log("Tentando renovar sessão com Supabase");
+          await refreshSession();
         }
       } catch (err) {
         console.error("Erro ao verificar autenticação:", err);
+        setAuthErrorOpen(true);
       } finally {
         setIsLoading(false);
       }
     };
     
     checkAuth();
-  }, [user]);
+  }, [user, refreshSession]);
+  
+  // Função para atualizar sessão manualmente
+  const handleRefreshSession = async () => {
+    setIsRefreshing(true);
+    try {
+      await refreshSession();
+      toast.success("Sessão atualizada com sucesso");
+    } catch (error) {
+      console.error("Erro ao atualizar sessão:", error);
+      toast.error("Não foi possível atualizar a sessão");
+      setAuthErrorOpen(true);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
   
   // Função modificada para abrir o caixa com validação de UUID e sessão
   const handleOpenCashier = async () => {
@@ -214,10 +202,10 @@ const CashierManagement: React.FC = () => {
     }
     
     // Verificar se temos sessão no Supabase
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session: currentSession } } = await supabase.auth.getSession();
     
-    if (!session) {
-      toast.error("Erro de autenticação com o servidor. Tente fazer login novamente.");
+    if (!currentSession) {
+      setAuthErrorOpen(true);
       return;
     }
     
@@ -238,7 +226,13 @@ const CashierManagement: React.FC = () => {
       toast.success("Caixa aberto com sucesso!");
     } catch (error: any) {
       console.error("Erro ao abrir caixa:", error);
-      toast.error(`Erro ao abrir o caixa: ${error.message || "Erro desconhecido"}`);
+      
+      // Verificar se é um erro de RLS
+      if (error.message && error.message.includes("violates row-level security policy")) {
+        setAuthErrorOpen(true);
+      } else {
+        toast.error(`Erro ao abrir o caixa: ${error.message || "Erro desconhecido"}`);
+      }
     }
   };
   
@@ -386,10 +380,24 @@ const CashierManagement: React.FC = () => {
             <h1 className="text-3xl font-bold">Gerenciamento de Caixa</h1>
             
             <div className="flex space-x-2 items-center">
-              {!supabaseSession && (
+              {!session && (
                 <div className="text-yellow-500 text-sm flex items-center gap-1 mr-4">
                   <span className="rounded-full bg-yellow-100 p-1 w-2 h-2"></span>
                   Modo offline
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={handleRefreshSession}
+                    disabled={isRefreshing}
+                  >
+                    {isRefreshing ? (
+                      "Atualizando..."
+                    ) : (
+                      <>
+                        <RefreshCcw className="mr-1 h-3 w-3" /> Reconectar
+                      </>
+                    )}
+                  </Button>
                 </div>
               )}
               
@@ -791,6 +799,24 @@ const CashierManagement: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      {/* Diálogo de Erro de Autenticação */}
+      <AlertDialog open={authErrorOpen} onOpenChange={setAuthErrorOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Erro de Autenticação</AlertDialogTitle>
+            <AlertDialogDescription>
+              Ocorreu um erro de autenticação com o servidor. Para continuar usando 
+              todas as funcionalidades, é necessário fazer login novamente ou tentar 
+              reconectar sua sessão.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setAuthErrorOpen(false)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRefreshSession}>Tentar Reconectar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 };
