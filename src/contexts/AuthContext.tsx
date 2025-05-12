@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -17,15 +16,16 @@ export interface User {
 
 interface AuthContextType {
   user: User | null;
-  session: any | null; // Adicionado para expor a sessão do Supabase
+  session: any | null;
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   isAuthenticated: boolean;
   isAdmin: boolean;
-  refreshSession: () => Promise<void>; // Adicionado para forçar renovação da sessão
+  refreshSession: () => Promise<boolean>;
+  lastAuthError: string | null;
 }
 
-// Usuários de exemplo (em produção, isso seria validado com um backend)
+// Usuários de exemplo
 const MOCK_USERS: Record<string, User & { password: string }> = {
   "admin": {
     id: "75442486-0878-440c-9db1-a7006c25a39f", // UUID válido
@@ -48,6 +48,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<any | null>(null);
+  const [lastAuthError, setLastAuthError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   // Verificar se há um usuário no localStorage e estabelecer sessão do Supabase
@@ -59,6 +60,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         if (sessionError) {
           console.error("Erro ao obter sessão:", sessionError);
+          setLastAuthError("Erro de conexão com o servidor de autenticação.");
         }
         
         if (sessionData.session) {
@@ -85,7 +87,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Se temos usuário local mas não temos sessão no Supabase, tentar autenticar
             if (!sessionData.session) {
               console.log("Tentando autenticar com Supabase para usuário local");
-              await establishSupabaseSession(parsedUser);
+              await establishSupabaseSession(parsedUser).catch(error => {
+                console.log("Continuando em modo local devido a erro:", error);
+                setLastAuthError("Erro de autenticação com o servidor. Continuando em modo local.");
+              });
             }
           } catch (error) {
             console.error("Erro ao processar usuário armazenado:", error);
@@ -108,6 +113,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setUser(null);
               localStorage.removeItem("pdv-user");
               navigate("/login");
+            } else if (event === 'SIGNED_IN' && newSession) {
+              // Se o usuário fizer login, atualizar a sessão
+              setSession(newSession);
+              setLastAuthError(null);
             }
           }
         );
@@ -117,6 +126,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
       } catch (error) {
         console.error("Erro durante setup inicial de autenticação:", error);
+        setLastAuthError("Erro durante inicialização da autenticação.");
       }
     };
     
@@ -145,6 +155,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           
           console.log("Login com email/senha bem-sucedido:", data);
           setSession(data.session);
+          setLastAuthError(null);
           return;
         } catch (error: any) {
           console.warn("Erro ao fazer login com email/senha:", error.message);
@@ -170,26 +181,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           
           console.log("Criação de conta bem-sucedida:", data);
           setSession(data.session);
+          setLastAuthError(null);
         } catch (signUpError: any) {
           console.error("Erro ao criar conta:", signUpError.message);
           // Exibir erro, mas não bloquear o fluxo
-          toast.error("Erro de autenticação com o servidor. Continuando em modo local.");
+          setLastAuthError("Erro de autenticação com o servidor. Continuando em modo local.");
         }
       } else {
         console.log("Sessão existente do Supabase encontrada");
         setSession(session);
+        setLastAuthError(null);
       }
     } catch (error) {
       console.error("Erro ao estabelecer sessão Supabase:", error);
+      setLastAuthError("Erro de autenticação com o servidor. Continuando em modo local.");
+      throw error; // Para permitir tratamento no chamador
     }
   };
 
-  // Nova função para forçar uma atualização da sessão
-  const refreshSession = async () => {
+  // Função para forçar uma atualização da sessão
+  const refreshSession = async (): Promise<boolean> => {
     try {
       if (!user) {
         throw new Error("Usuário não autenticado");
       }
+      
+      // Resetar qualquer erro de autenticação anterior
+      setLastAuthError(null);
       
       // Forçar uma atualização da sessão
       const { data, error } = await supabase.auth.refreshSession();
@@ -200,9 +218,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         setSession(data.session);
       }
-    } catch (error) {
+      
+      // Se chegamos até aqui, é porque a sessão foi renovada com sucesso
+      return true;
+    } catch (error: any) {
       console.error("Erro ao atualizar sessão:", error);
-      toast.error("Erro ao atualizar sessão. Tente fazer login novamente.");
+      setLastAuthError(`Erro ao atualizar sessão: ${error.message}`);
+      return false;
     }
   };
 
@@ -242,6 +264,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     setUser(null);
     setSession(null);
+    setLastAuthError(null);
     localStorage.removeItem("pdv-user");
     
     // Fazer logout do Supabase também
@@ -260,7 +283,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     logout,
     isAuthenticated: !!user,
     isAdmin: user?.role === "admin",
-    refreshSession
+    refreshSession,
+    lastAuthError
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

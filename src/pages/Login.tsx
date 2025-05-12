@@ -1,7 +1,7 @@
 
 import React, { useState, FormEvent, useEffect } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { LogIn, Loader } from "lucide-react";
+import { LogIn, Loader, AlertCircle, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,14 +9,16 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [connectionError, setConnectionError] = useState(false);
   
-  const { login, isAuthenticated, isAdmin, session } = useAuth();
+  const { login, isAuthenticated, isAdmin, session, refreshSession } = useAuth();
   const navigate = useNavigate();
 
   // Verificar autenticação existente
@@ -28,6 +30,7 @@ const Login: React.FC = () => {
         
         if (error) {
           console.error("Erro ao verificar sessão do Supabase:", error);
+          setConnectionError(true);
         }
         
         // Log para debug
@@ -36,15 +39,25 @@ const Login: React.FC = () => {
           isAuthenticated,
           localUser: localStorage.getItem("pdv-user") 
         });
+        
+        // Tentar atualizar a sessão se tivermos um usuário local mas o Supabase não tiver sessão
+        if (!supabaseSession && localStorage.getItem("pdv-user")) {
+          try {
+            await refreshSession();
+          } catch (refreshError) {
+            console.error("Não foi possível atualizar a sessão:", refreshError);
+          }
+        }
       } catch (error) {
         console.error("Erro ao verificar autenticação:", error);
+        setConnectionError(true);
       } finally {
         setCheckingAuth(false);
       }
     };
     
     checkExistingAuth();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, refreshSession]);
 
   if (checkingAuth) {
     return (
@@ -86,6 +99,18 @@ const Login: React.FC = () => {
             <CardTitle className="text-2xl font-bold">Lanchonete PDV</CardTitle>
             <CardDescription>Faça login para acessar o sistema</CardDescription>
           </CardHeader>
+          
+          {connectionError && (
+            <div className="px-6">
+              <Alert variant="warning" className="bg-yellow-50 border-yellow-200 mb-4">
+                <AlertCircle className="h-4 w-4 text-yellow-600" />
+                <AlertTitle className="text-yellow-800">Aviso de Conectividade</AlertTitle>
+                <AlertDescription className="text-yellow-700">
+                  Não foi possível conectar ao servidor. O sistema continuará funcionando em modo local com capacidade limitada.
+                </AlertDescription>
+              </Alert>
+            </div>
+          )}
           
           <form onSubmit={handleSubmit}>
             <CardContent className="space-y-4">
@@ -136,6 +161,15 @@ const Login: React.FC = () => {
           <p><strong>Admin:</strong> admin / admin123</p>
           <p><strong>Funcionário:</strong> func1 / func123</p>
         </div>
+        
+        {connectionError && (
+          <div className="mt-4 text-center">
+            <div className="inline-flex items-center gap-1 text-sm text-amber-600 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
+              <WifiOff size={14} />
+              Modo offline ativo
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
